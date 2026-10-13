@@ -66,14 +66,21 @@ The map described ejecting to self-hosted as "same library, same tables — just
 | `role`, `banned`, `banReason`, `banExpires` | present | absent |
 | `username`, `display_username` | **absent** | present |
 
-Different primary key type, different naming convention, different timezone semantics, different column set. Ejecting **after** real users exist is a data migration with id remapping, not a repoint.
+Different primary key type, different naming convention, different timezone semantics, different column set.
 
-That would have been expensive. It is not, because vartalap has no users and no production code. **The right time to eject was before building anything**, which is where we are.
+**Correction, after further research.** This overstated the cost. Better Auth natively supports pointing at a non-default schema (`database.schemaName`), and `advanced.database.generateId: "uuid"` switches its id DDL from `text` to `uuid`. With those, ejecting is closer to a config change plus a forced re-login than a rewrite. One incompatibility is genuinely unfixable: the session cookie is HMAC-signed with a secret held inside Neon's service, so **sessions cannot survive any eject** — every user re-authenticates. Neon offers no official migration guide for this direction and its own agent skill warns against promising session continuity.
+
+Whether the `neon_auth` tables can be adopted as-is is **unconfirmed**: Better Auth addresses columns by its own expected names, and the live schema stores `emailVerified` where a self-hosted install generates `email_verified`. A `npx auth check schema` against a branch clone settles it in ten minutes. This does not affect the decision — we are not adopting Managed — but it is why "eject later" was still the wrong call.
+
+What stands regardless: **ejecting before any code exists costs nothing, and ejecting after users exist costs a forced re-login plus an unresolved schema question.** That would have been a real migration. It is not one now.
 
 ## Consequences
 
-- **Ejecting now costs zero.** Choosing Managed and ejecting later would have cost a migration. Choosing self-hosted now costs nothing.
+- **Ejecting now costs zero.** Choosing Managed and ejecting later would have cost a forced re-login for every user. Choosing self-hosted now costs nothing.
 - **We run one more process.** The map already decided to self-host Centrifugo for realtime, so this is a marginal addition, not a new posture.
+- **We will write our own email code.** Managed Better Auth only offers a rate-limited dev SMTP endpoint; production needs a real provider on *either* side. Self-hosted also means supplying `sendVerificationEmail` and `sendResetPassword` and their templates. Budget roughly half a day, plus a small provider bill at our scale.
+- **Redis is not required.** Sessions live in Postgres with `storage: "database"`. Nothing in this decision adds a cache.
+- **Pick the id strategy deliberately.** Better Auth's default id generator emits a 32-character random string into a `text` column; `advanced.database.generateId: "uuid"` switches it to a real `uuid`. Pointing a `text` default at a `uuid` column fails *silently at runtime* — seeded and existing rows keep working, only new signups break. Since we own our schema we choose deliberately rather than inheriting a default; which one vartalap wants is an auth-spec decision.
 - **`username()` has no history table.** Verified: tables are `user`, `session`, `account`, `verification` only. A released handle is freed and never reserved. If vartalap ever needs handle-recycling protection, that is our table to build — a real tradeoff to take deliberately.
 - **The validator is ASCII-only by default.** `"café"` is rejected as `INVALID_USERNAME`. Configurable via `usernameValidator`, which is the property that kept Better Auth ahead of Clerk. Deciding whether vartalap opens this up is a product question, and belongs to the auth spec.
 - **Validation rejects; it does not report availability.** `isUsernameAvailable` throws HTTP 422 (`USERNAME_TOO_SHORT`, `INVALID_USERNAME`) for a malformed candidate rather than returning `available: false`. The handle-availability UI must handle both shapes.
@@ -81,4 +88,6 @@ That would have been expensive. It is not, because vartalap has no users and no 
 
 ## What would reverse this
 
-If Neon ships `username()` on Managed Better Auth, this is worth revisiting — but only with evidence it is actually usable, not that it is planned. Managed also refuses to enable on projects using IP Allow or Private Networking, which would independently disqualify it.
+If Neon ships `username()` on Managed Better Auth, this is worth revisiting — but only with evidence it is actually usable, not that it is planned.
+
+Two further marks against Managed, independent of the plugin gap: it refuses to enable on projects using IP Allow or Private Networking, and it carries an open defect where Managed Auth prevents Scale to Zero, with one user reporting roughly 4× the expected compute cost.
