@@ -74,6 +74,9 @@ _Avoid_: Read marker, seen-by, message status, last-read
 A message is read by a member when it has been shown to them. Not when they scrolled past it, not when the conversation was merely opened, and never a property of the message alone: reading is a relation between a member and a point in a transcript.
 _Avoid_: Seen, delivered, viewed, opened
 
+**Seen**:
+Not a domain word. The interface prints "Seen" because Messenger's does; the domain says Read and Receipt, and the two never meet. Copy may borrow a stranger's word, but nothing in the model, the schema, or the protocol may.
+
 **Unread count**:
 The number of messages in a transcript that come after a member's receipt. Always derived from the receipt, never stored — a stored count is a second source of truth that disagrees with the receipt the moment either is wrong.
 _Avoid_: Unread messages (when you mean the number), unread total, badge
