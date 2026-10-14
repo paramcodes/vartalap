@@ -2,6 +2,7 @@ import { relations, sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  customType,
   index,
   integer,
   jsonb,
@@ -15,6 +16,16 @@ import {
   bigint,
   bigserial,
 } from 'drizzle-orm/pg-core';
+
+/**
+ * Postgres `tsvector`. Drizzle 0.38 has no built-in for it, and `text()` is not a
+ * substitute: a `text` column holding a tsvector has no default GIN operator class,
+ * so `USING gin (search_vector)` fails outright on a fresh database. That is not a
+ * warning — the index creation errors, and the migration does not apply.
+ *
+ * Caught by running packages/database/drizzle/0001_init.sql rather than reading it.
+ */
+const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' });
 
 /**
  * The vartalap schema. Every odd-looking choice here is an ADR, and the comment
@@ -271,7 +282,7 @@ export const message = pgTable(
      * This is also why E2EE and message search are in direct conflict: a tsvector
      * cannot be built from ciphertext.
      */
-    searchVector: text('search_vector').generatedAlwaysAs(sql`to_tsvector('simple', "body")`),
+    searchVector: tsvector('search_vector').generatedAlwaysAs(sql`to_tsvector('simple', "body")`),
     /** Client clock. Display only. NEVER a sort key — clocks drift and users set them. */
     clientCreatedAt: timestamp('client_created_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

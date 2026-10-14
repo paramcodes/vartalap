@@ -80,7 +80,7 @@ CREATE TABLE "message" (
 	"conversation_id" uuid NOT NULL,
 	"author_id" uuid NOT NULL,
 	"body" text DEFAULT '' NOT NULL,
-	"search_vector" text GENERATED ALWAYS AS (to_tsvector('simple', "body")) STORED,
+	"search_vector" "tsvector" GENERATED ALWAYS AS (to_tsvector('simple', "body")) STORED,
 	"client_created_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
