@@ -102,7 +102,7 @@ _Avoid_: Send queue, event log
 ## Live signals
 
 **Presence**:
-The fact that a user is connected right now. Live and unstored: true or false at this instant, with no history behind it.
+The fact that a user has a live connection to vartalap: true or false, with no history behind it. It is read at the resolution of a 45-second window, so it means connected within the last 45 seconds rather than connected at this instant.
 _Avoid_: Online status, active now, last seen
 
 **Typing**:
