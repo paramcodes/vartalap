@@ -54,7 +54,9 @@ This was the strongest argument for the append-only design and it is not a bad o
 
 **Every member always has a receipt**, whatever their sharing setting. A member reading privately still needs an accurate local receipt to clear their own unread count — the entire point of Matrix's `m.read.private`. Sharing is therefore a fact *about* a receipt, not a condition of its existence, and `GLOSSARY.md` says so without committing to storage.
 
-**The receipt's position type is not settled here.** `>=` must be meaningful for the `Seen` predicate to be reliable, which rules out `created_at` (clock skew, same-millisecond collisions) and UUIDv7 (monotonic only *most* of the time — two concurrent sends in one millisecond tie-break randomly, so `Seen` flickers exactly when a busy conversation is being compared). An explicit per-conversation `bigint` sequence is the recommendation. **That is the ordering ticket's decision and it gates this one.**
+**The receipt's position type is not settled here.** `>=` must be meaningful for the `Seen` predicate to be reliable, which rules out `created_at` (clock skew, same-millisecond collisions) and UUIDv7 (monotonic only *most* of the time — two concurrent sends in one millisecond tie-break randomly, so `Seen` flickers exactly when a busy conversation is being compared). An explicit `bigint` sequence is the recommendation — **a single global column, not a per-conversation one.** That is [0005](0005-message-ordering.md)'s decision, and it gates this one.
+
+> **Amended by [0005](0005-message-ordering.md).** This record originally recommended a *per-conversation* sequence. That was wrong. Per-conversation positions do not compare across conversations, so there is no global order and therefore no global cursor — reconnect would need one query per conversation. A single global `seq` is both the transcript order and the catch-up cursor, and because it is one column serving both jobs it cannot disagree with itself.
 
 ## What would reverse this
 

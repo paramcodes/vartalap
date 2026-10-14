@@ -116,9 +116,13 @@ This is the single most important line in the design, and it is recorded as a de
 The cost is real and worth naming: **a committed message is a message that exists**, even if every
 relay and every device is offline for the next hour. It is durable before it is anywhere.
 
-Within that same transaction the message is assigned its **position** — the server-assigned,
-per-conversation sequence number that every ordering decision depends on. Positions are opaque to
+Within that same transaction the message is assigned its **position** — a server-assigned `bigint`
+sequence number, `messages.seq`, that every ordering decision depends on. Positions are opaque to
 clients: a client can never set, influence, or predict one.
+
+> The position is a **single global column**, not a per-conversation sequence. This document originally
+> said otherwise; [Message ordering and pagination](./message-ordering.md) corrected it, because
+> per-conversation positions leave no global cursor and turn reconnect into a query per conversation.
 
 ## 6. Dedupe
 
@@ -216,10 +220,9 @@ switched back on.
 
 ## 10. Reconnect
 
-The client stores a cursor per conversation in Dexie, so it survives a reload. Because positions are
-per conversation, there is no global order across conversations and therefore no global cursor:
-reconnecting means one catch-up query per conversation, asking for everything positioned after that
-conversation's cursor.
+The client stores a cursor in Dexie, so it survives a reload. Because `seq` is a single global
+column, there **is** a total order across conversations and therefore one cursor for the whole
+account: reconnecting is a single catch-up query for everything positioned after it.
 
 The loop runs until the server returns a short page — fewer rows than the page size — which is how
 the client knows it has caught up.
@@ -227,10 +230,12 @@ the client knows it has caught up.
 The cursor advances **only past messages that were actually persisted.** A frame that fails to write
 must not move it, or the gap becomes silent and permanent.
 
-This is O(conversations) queries on reconnect, which is a known limit rather than an open question.
-It breaks when someone is in enough conversations that the reconnect storm hurts — a measurable
-threshold, not a guess. The alternative is a second global sequence used only for catch-up, which
-buys one query at the cost of maintaining two orderings that must never disagree.
+After catch-up, the client compares its message count for each conversation against the server's.
+A permanently skipped row is invisible otherwise.
+
+> This document originally described reconnect as one query *per conversation*, on the grounds that
+> per-conversation positions leave no global cursor. [Message ordering and pagination](./message-ordering.md)
+> settled on a single global `seq` instead, which removes the limitation entirely.
 
 ## When a send fails
 
@@ -289,8 +294,8 @@ mutations of this flow rather than new flows, and none of them may change the du
 rewrites a message's body in place and never its position or its identity.
 
 **Ordering and pagination are decided elsewhere.** This document establishes that a server-assigned,
-per-conversation position exists and that the client cannot influence it. How that sequence is
-allocated — and how the commit-inversion race is handled — is
+position exists and that the client cannot influence it. What that position is, how it paginates, and
+how the commit-inversion race is handled — is
 [Message ordering and pagination](https://github.com/paramcodes/vartalap/issues/7).
 
 ---
