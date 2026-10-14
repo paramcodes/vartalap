@@ -57,6 +57,20 @@ export const user = pgTable(
     username: text('username').notNull(),
     displayUsername: text('display_username'),
 
+    // ── Better Auth's declared user fields that vartalap does not use ──────────
+    // Both are `input: false` and `returned: false` in the auth config, so nothing
+    // ever writes or reads them. They exist because Better Auth 1.7.x validates the
+    // schema on every request and reports `missing-column` for any declared field
+    // that is absent — and auth is down with a 500 until it matches. `name` is the
+    // awkward one: it is `required: true` upstream and cannot be removed through
+    // config, only overridden. So it lives here as a dead nullable column.
+    //
+    // The real display name is `member.display_name`, scoped to a conversation
+    // (ADR 0016). The real avatar is `avatar_media_id` below. Do not start writing
+    // either of these columns.
+    name: text('name'),
+    image: text('image'),
+
     /** Avatar is Media through the same pipeline as an attachment (ADR 0008). */
     avatarMediaId: uuid('avatar_media_id'),
 
@@ -68,7 +82,20 @@ export const user = pgTable(
     // bypasses it (we write with Drizzle) never normalises. This index is the safety
     // net that catches exactly that bypass — it costs nothing and catches every
     // bypassing writer. Do not remove it thinking `username` is already unique.
-    uniqueIndex('user_username_lower_key').on(sql`lower(${t.username})`),
+    // ADR 0017: `COLLATE "C"` is load-bearing, not decoration. An unqualified
+    // `lower()` computes under whatever locale the database was created with, and
+    // `lower('İ')` is `i` under a non-C locale but `İ` under C — so Postgres and
+    // JavaScript's toLowerCase disagree about the same string. That disagreement is
+    // a handle that is "already taken" for someone who just typed it, or two rows
+    // that the index fails to catch. The local PGlite database is already `C`, so
+    // this only shows up on Neon, which is exactly why it needs pinning here.
+    uniqueIndex('user_username_lower_key').on(sql`lower(${t.username} COLLATE "C")`),
+    // The read path signs in with `WHERE username = $1`, and an expression index on
+    // lower() cannot serve that — it would need the session to know the input is
+    // already normalised. This plain unique index is what makes it a lookup.
+    // `auth-and-identity.md` calls for it; it was missing until the sign-in path
+    // needed it.
+    uniqueIndex('user_username_unique').on(t.username),
     // A Handle is a Handle, not an email. An account may have both; the ticket's
     // verification found there is NO username-only signup, so email is mandatory.
     uniqueIndex('user_email_key').on(t.email),
@@ -88,7 +115,12 @@ export const handleReservation = pgTable(
   'handle_reservation',
   {
     handle: text('handle').primaryKey(),
-    userId: uuid('user_id').notNull(),
+    // Nullable, because a RELEASED handle has no owner: the trigger that writes the
+    // release fires BEFORE DELETE and the user is mid-deletion. NOT NULL here is what
+    // made the documented trigger insert impossible.
+    userId: uuid('user_id'),
+    /** 'released' (deletion), or 'reserved' (held back deliberately). */
+    reason: text('reason').notNull().default('released'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('handle_reservation_user_idx').on(t.userId)],

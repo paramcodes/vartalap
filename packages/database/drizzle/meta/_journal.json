@@ -15,6 +15,20 @@
       "when": 1791993766508,
       "tag": "0001_init",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791995978044,
+      "tag": "0002_identity_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791995979044,
+      "tag": "0003_handle_reservation",
+      "breakpoints": true
     }
   ]
 }
