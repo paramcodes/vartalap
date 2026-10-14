@@ -1,0 +1,795 @@
+<!doctype html>
+<!--
+  PROTOTYPE — THROWAWAY. Not vartalap. Do not promote this file; it exists to answer
+  "what does the token layer look like", then gets deleted.
+
+  Wayfinder ticket: "Messenger theme and chat shell" (wayfinder:prototype).
+  Map: vartalap — spec and architecture map.
+
+  Question: do the decisions already made — shadcn/ui on Base UI, faithful Meta tokens,
+  our own identity, Inter, flat blue, no Meta assets — actually compose into something
+  that reads as Messenger? Several load-bearing details are cheaper to judge on screen
+  than on paper: the burst corner state machine, the floating card, timestamps below the
+  group, tail-less bubbles, dark mode as its own token set.
+
+  Three variants, switchable via ?variant=A|B|C. Each is a structurally different
+  answer to "how should the token layer compose into a chat shell":
+
+    A  Grouped   — floating card on a wash; runs fuse; timestamps below the group;
+                   "Seen" pinned under the last outgoing message. The literal ticket.
+    B  Inline    — same card, no fusion, timestamp INSIDE each bubble. The WhatsApp /
+                   iMessage instinct, rendered deliberately as the control: if A does not
+                   read as Messenger and B does not either, the difference is not
+                   metadata placement and we were wrong about something else.
+    C  Full-bleed— no card at all; the bubble column bleeds to the viewport on the wash;
+                   timestamp in a left gutter rail. Tests whether the floating card is
+                   load-bearing or whether the bubbles carry it alone.
+
+  Token source: Meta's shipped web CSS under --messenger-* / --chat-*, corroborated
+  across independent DOM captures 2024–2026. Values marked UNVERIFIED are inferred,
+  not observed, and are flagged in the inspector.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE — messenger theme and chat shell</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+<style type="text/tailwindcss">
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THE DELIVERABLE: the `messenger` token block.
+   This is the thing under review, not the markup below it.
+
+   Deliberate: plain `@theme`, NOT `@theme inline`. Tailwind v4's `@theme inline`
+   pastes the literal value into each utility (`.bg-wash { background-color:#F0F2F5 }`),
+   which would freeze every token at build time and make the `.dark` overrides below
+   inert. Plain `@theme` emits real custom properties on :root and utilities reference
+   them, so a `.dark` scope re-themes the whole system by reassigning a variable.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+@theme {
+  /* ── scale anchor ────────────────────────────────────────────────────────────
+     One number moves forty components. shadcn's scale is --radius * multipliers;
+     --radius-xl lands on Messenger's exact 18px bubble without any component knowing
+     the value 18. Do not round this to 12.86 — 12.857 * 1.4 = 17.9998. */
+  --radius: 12.857px;
+  --radius-xl: calc(var(--radius) * 1.4);   /* 17.9998px  ==  Messenger's bubble */
+  --radius-lg: calc(var(--radius) * 0.622); /*   7.9971px  ==  Messenger's card   */
+  --radius-2xl: calc(var(--radius) * 2);    /*  25.714px   ==  the composer        */
+
+  /* NOTE: there is deliberately NO --radius-sm. A theme variable that no used
+     class references is tree-shaken out of the compiled CSS by Tailwind v4's build
+     and simply stops existing — a token declared but never rendered is a token
+     that is gone. Anything that looks like a token but is currently used only in
+     one hand-written inline style belongs here as a literal until it earns a class. */
+
+  /* ── brand: ONE value, byte-identical in both themes ─────────────────────────
+     Meta sets the outgoing bubble to the brand accent in light and dark alike.
+     This single fact is most of why dark-mode Messenger looks like Messenger. */
+  --color-accent: #0084FF;          /* classic Messenger blue */
+
+  /* ── surfaces ─────────────────────────────────────────────────────────────── */
+  --color-wash:        #F0F2F5;     /* --web-wash              */
+  --color-card:        #FFFFFF;     /* floating card           */
+  --color-elevated:    #FFFFFF;
+  /* Two names, one value: the neutral fill the settings surfaces and the composer's
+     own well are the same colour, and the prototypes that need them each named it
+     locally before the block was ever synced. Collapse them when a real token name
+     is settled. */
+  --color-surface:        #F0F0F0;
+  --color-surface-composer: #F0F0F0;
+
+  /* ── bubbles ──────────────────────────────────────────────────────────────── */
+  --color-bubble-in:   #F0F0F0;
+  --color-bubble-out:  var(--color-accent);   /* literally var(--accent), per Meta */
+
+  /* ── ink ──────────────────────────────────────────────────────────────────── */
+  --color-ink:           #050505;
+  --color-ink-muted:     #65676B;
+  --color-ink-faint:     #8A8D91;
+  --color-ink-on-accent: #FFFFFF;
+
+  /* ── lines and states ─────────────────────────────────────────────────────── */
+  --color-hairline: rgba(0, 0, 0, 0.06);
+  --color-selected:  #EBF5FF;       /* --hosted-view-selected-state */
+  --color-press:     rgba(0, 0, 0, 0.04);
+
+  /* ── status ───────────────────────────────────────────────────────────────── */
+  --color-danger: #D93025;
+  --color-warn:   #B26B00;
+
+  /* ── focus ──────────────────────────────────────────────────────────────────
+     shadcn's default is focus-visible:ring-ring/50, which measures ~2.4:1 on white
+     — under the 3:1 non-text minimum of WCAG 1.4.11. Opaque in both themes. */
+  --color-focus: #0866FF;
+
+  /* ── UNVERIFIED ─────────────────────────────────────────────────────────────
+     #31A73B is Meta's canonical green. No --presence-* token has been found in any
+     capture, so this value is inferred, not observed. Compare against messenger.com. */
+  --color-presence: #31A73B;
+
+  /* ── motion ─────────────────────────────────────────────────────────────────
+     Enter slower than exit. 280 in / 200 out. */
+  --ease-messenger-in:  cubic-bezier(0.14, 1, 0.34, 1);
+  --ease-messenger-out: cubic-bezier(0.45, 0.1, 0.2, 1);
+  --duration-enter: 280ms;
+  --duration-exit:  200ms;
+}
+
+/* Dark is its own token set, not an inversion. Note what does NOT change: accent,
+   bubble-out, and therefore the outgoing bubble colour. */
+.dark {
+  --color-wash:      #18191A;
+  --color-card:      #242526;
+  --color-elevated:  #3A3B3C;
+  --color-surface:        #2F2F2F;
+  --color-surface-composer: #2F2F2F;
+  --color-bubble-in: #303030;
+  --color-ink:       #E9E9E9;
+  --color-ink-muted: #B0B3B8;
+  --color-ink-faint: #8A8D91;
+  --color-hairline:  rgba(255, 255, 255, 0.08);
+  --color-selected:  #303030;
+  --color-press:     rgba(255, 255, 255, 0.06);
+  --color-danger:    #F28B82;
+  --color-warn:      #E0A33E;
+  --color-focus:     #66A3FF;
+}
+
+@layer base {
+  html { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  body { background: var(--color-wash); color: var(--color-ink); }
+
+  /* The fixed WCAG 1.4.11 fix: opaque ring, both themes. */
+  :where(a, button, [tabindex], textarea, input):focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /* Bubbles carry four independent corners. Tail-less by construction: there is no
+     tail element, and no pseudo-element faking one. The absence is deliberate.
+
+     The base radius is the TOKEN, not a literal. 12.857 × 1.4 = 17.9998px, and
+     nothing here knows the number 18. Only the two inline-end corners a burst
+     narrows are overridden inline, so the run geometry is the sole exception.
+
+     These are LOGICAL longhands, so "inline-end" is correct by construction: it
+     mirrors on its own under dir="rtl" and nothing has to branch on side. */
+  .bubble {
+    border-start-start-radius: var(--radius-xl);
+    border-start-end-radius:   var(--radius-xl);
+    border-end-start-radius:   var(--radius-xl);
+    border-end-end-radius:     var(--radius-xl);
+    transition: border-radius var(--duration-exit) var(--ease-messenger-out);
+  }
+
+  .enter { animation: msg-in var(--duration-enter) var(--ease-messenger-in) both; }
+  @keyframes msg-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.985); }
+    to   { opacity: 1; transform: none; }
+  }
+  .card-in { animation: card-in var(--duration-enter) var(--ease-messenger-in) both; }
+  @keyframes card-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.99); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  .swatch { transition: background-color var(--duration-enter) var(--ease-messenger-in); }
+}
+
+/* ── diagnostic chrome. Obviously not part of the design being evaluated. ───── */
+#proto-bar, #proto-inspect, #proto-cases { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+
+<body class="min-h-dvh antialiased">
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     TOP BAR — diagnostic chrome, not part of the Messenger design.
+     ════════════════════════════════════════════════════════════════════════════ -->
+<div id="proto-bar" class="sticky top-0 z-50 flex flex-wrap items-center gap-2 border-b border-hairline bg-card px-3 py-2 text-[11px]">
+  <span class="rounded bg-press px-1.5 py-0.5 font-semibold tracking-wide text-ink-muted">PROTOTYPE</span>
+  <span class="text-ink-muted" id="variant-name"></span>
+  <span class="flex-1"></span>
+  <button data-toggle="theme"  class="rounded border border-hairline px-2 py-1 hover:bg-press">theme: <b id="lbl-theme">light</b></button>
+  <button data-toggle="nub"    class="rounded border border-hairline px-2 py-1 hover:bg-press">nub: <b id="lbl-nub">4px</b></button>
+  <button data-toggle="reading" class="rounded border border-hairline px-2 py-1 hover:bg-press">reading: <b id="lbl-reading">fused</b></button>
+  <button data-toggle="deleted" class="rounded border border-hairline px-2 py-1 hover:bg-press">last deleted</button>
+  <button data-toggle="card"   class="rounded border border-hairline px-2 py-1 hover:bg-press">card: <b id="lbl-card">480px</b></button>
+  <button data-toggle="replay" class="rounded border border-hairline px-2 py-1 hover:bg-press">replay motion</button>
+  <button data-toggle="cases"  class="rounded border border-hairline px-2 py-1 hover:bg-press">burst cases</button>
+  <button data-toggle="tokens" class="rounded border border-hairline px-2 py-1 hover:bg-press">tokens</button>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     THE SHELL
+     ════════════════════════════════════════════════════════════════════════════ -->
+<main id="stage" class="flex min-h-[calc(100dvh-2.75rem)] justify-center p-4 sm:p-8"></main>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     PANELS
+     ════════════════════════════════════════════════════════════════════════════ -->
+<section id="proto-cases" hidden class="border-t border-hairline bg-card p-4 text-[11px] leading-relaxed">
+  <h2 class="mb-1 text-sm font-semibold">Burst corner state machine — the cases that are hard to reason about on paper</h2>
+  <p class="mb-4 max-w-prose text-ink-muted">
+    Rendered by the same <code>cornerOverrides()</code> the shell uses, not a mockup. If this panel
+    and the shell disagree, the bug is here. Two contested readings are implemented:
+    <b>fused</b> (bubbles narrow both inline-end corners so a run reads as one shape) and
+    <b>nub</b> (only the run's last bubble gets the small corner). Two credible
+    reconstructions exist for both the reading and the value; toggle them at the top.
+  </p>
+  <div id="cases-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"></div>
+</section>
+
+<section id="proto-inspect" hidden class="border-t border-hairline bg-card p-4 text-[11px] leading-relaxed">
+  <h2 class="mb-1 text-sm font-semibold">Token layer — live computed values</h2>
+  <p class="mb-4 max-w-prose text-ink-muted">
+    Read from the live document, so this is what the shell is actually rendering against.
+    Flip the theme at the top and re-read: the outgoing bubble must not move.
+  </p>
+  <div id="token-grid" class="grid gap-x-8 gap-y-1 sm:grid-cols-2 lg:grid-cols-3"></div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     VARIANT SWITCHER
+     NOTE on the "hidden in production" rule from the prototype skill: there is no
+     bundler here, so process.env.NODE_ENV is unavailable and this whole file is
+     already throwaway — it never reaches main. The equivalent gate would be a
+     NODE_ENV check inside the switcher component in the real route.
+     ════════════════════════════════════════════════════════════════════════════ -->
+<div class="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2">
+  <div class="flex items-center gap-1 rounded-full bg-neutral-900 p-1 text-white shadow-2xl ring-1 ring-white/10">
+    <button data-cycle="-1" aria-label="Previous variant"
+      class="grid h-9 w-9 place-items-center rounded-full text-lg leading-none hover:bg-white/15">‹</button>
+    <span id="proto-switch-label" class="min-w-[13rem] px-2 text-center text-xs font-medium tracking-wide"></span>
+    <button data-cycle="1" aria-label="Next variant"
+      class="grid h-9 w-9 place-items-center rounded-full text-lg leading-none hover:bg-white/15">›</button>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════════
+   1. DOMAIN
+   Vocabulary is the deliverable as much as the pixels. GLOSSARY.md, ticket
+   "Domain model and GLOSSARY": a Message is authored content and nothing else;
+   Transcript is the ordered messages; Receipt is a member's record of how far they
+   have read — it is NEVER a property of a message; Presence is connected-now;
+   Typing is ephemeral and never stored.
+
+   The UI copy says "Seen". The glossary bans "Seen" under Read and prefers Read.
+   That collision is deliberate and unresolved — see the note on the receipt label.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const ME   = { displayName: 'You',  handle: '@you', avatarHue: 210 };
+const PRIYA= { displayName: 'Priya', handle: '@priya', avatarHue: 330 };
+const SAM  = { displayName: 'Sam',  handle: '@sam',   avatarHue: 20  };
+const DEV  = { displayName: 'Dev',  handle: '@dev',   avatarHue: 150 };
+
+// A group conversation: 1:1 above, group below, so the member-avatar column is visible.
+const CONVERSATION = { displayName: 'Platform', isGroup: true, members: [ME, PRIYA, SAM, DEV] };
+
+/** Transcript: ordered messages, oldest first. `id` exists so a delete can be simulated. */
+let TRANSCRIPT = [
+  { id: 1,  author: PRIYA, text: 'morning — did the 4.2 deploy go out?', at: '09:12' },
+  { id: 2,  author: ME,    text: 'yeah, four minutes ago',                at: '09:14' },
+
+  { id: 'div-1', divider: 'Today', at: '' },
+
+  { id: 3,  author: ME,    text: 'green on prod',                          at: '09:15' },
+  { id: 4,  author: ME,    text: 'staging is still waiting on the migration', at: '09:15' },
+  { id: 5,  author: PRIYA, text: 'ok',                                     at: '09:16' },
+  { id: 6,  author: PRIYA, text: "i'll take the runbook, you ping when staging flips", at: '09:16' },
+  { id: 7,  author: PRIYA, text: 'coffee first though',                    at: '09:16' },
+  { id: 8,  author: ME,    text: 'deal',                                   at: '09:17' },
+  { id: 9,  author: ME,    text: 'the burst corner is the one thing i keep getting wrong', at: '09:18' },
+  { id: 10, author: ME,    text: 'four pixels or six, depending on who you ask', at: '09:18' },
+  { id: 11, author: SAM,   text: 'i measured it. it is four.',              at: '09:19' },
+  { id: 12, author: SAM,   text: 'also we should render the deleted case',  at: '09:19' },
+
+  { id: 'div-2', divider: 'Yesterday', at: '' },
+
+  { id: 13, author: ME,    text: 'a run that continues across a date divider', at: 'Yesterday' },
+  { id: 14, author: ME,    text: 'is still one run, or two?',               at: 'Yesterday' },
+  { id: 15, author: PRIYA, text: 'good question',                           at: 'Yesterday' },
+  { id: 16, author: PRIYA, text: 'put both and look at it',                 at: 'Yesterday' },
+];
+
+/* The message the "last deleted" toggle removes. It is the final message of a
+   three-message outgoing run, so deleting it promotes a middle to last — the case
+   where a state machine written against the final render silently breaks. */
+const DELETABLE = 16;
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   2. THE BURST CORNER STATE MACHINE
+   Not a mockup — this is the implementation the shell renders.
+
+   A *run* is consecutive messages from the same author with no intervening
+   divider. Each message in a run is first / middle / last / single. The inline-end
+   side is the side the bubble points to: right for outgoing, left for incoming.
+
+   Two readings, both defensible, both implemented:
+     fused — every message in a run narrows its inline-end corners so the run reads
+             as one continuous shape. `last` and `middle` are then identical, which is
+             either correct or a sign the reading is wrong.
+     nub   — only the run's last bubble narrows its bottom inline-end corner (the
+             tail nub every clone fakes with a pseudo-element). Middle bubbles keep
+             full corners and only sit tighter.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const NARROWED = { fused: { single: [], first: ['te'], middle: ['te','be'], last: ['te','be'] },
+                   nub:   { single: [], first: [],    middle: [],            last: ['be'] } };
+
+/** Compute run position for every message, honouring dividers as run terminators. */
+function computeRuns(messages) {
+  const msgs = messages.filter(m => !m.divider);
+  const idx  = messages.map((m, i) => ({ m, i })).filter(x => !x.m.divider);
+  const out  = new Array(messages.length).fill(null);
+
+  let start = 0;
+  const closed = [];
+  for (let k = 1; k <= idx.length; k++) {
+    const atEnd = k === idx.length;
+    const broke = !atEnd && (
+      messages[idx[k].i - 1].divider !== undefined ||      // a divider interrupts
+      idx[k].m.author !== idx[k-1].m.author                  // a change of author interrupts
+    );
+    if (atEnd || broke) { closed.push([start, k - 1]); start = k; }
+  }
+
+  for (const [a, b] of closed) {
+    const len = b - a + 1;
+    for (let k = a; k <= b; k++) {
+      const pos = len === 1 ? 'single' : k === a ? 'first' : k === b ? 'last' : 'middle';
+      // runStart/runEnd are indices into the FULL transcript, not into the filtered
+      // one. Indexing back into the filtered list silently shifts every lookup by the
+      // number of dividers above the run — which reads as plausible timestamps rather
+      // than as a crash, which is how it survived a first pass.
+      out[idx[k].i] = { pos, runLength: len, runIndex: k - a, runStart: idx[a].i, runEnd: idx[b].i };
+    }
+  }
+  return out;
+}
+
+/**
+ * The inline override a narrowed corner needs — and nothing else.
+ *
+ * Returns a style string touching only the two corners this run state narrows, so
+ * every other corner keeps coming from `--radius-xl` in CSS. Returning a full
+ * four-corner value here would quietly re-hardcode 18px and quietly undo the
+ * whole scale-anchor trick, which is exactly the bug this shape avoids.
+ *
+ * No `side` argument: logical longhands put the nub on the inline-end side for
+ * outgoing and incoming alike, so there is no mirror branch to get wrong.
+ */
+function cornerOverrides(pos, reading, nubPx) {
+  const CORNER = { te: 'border-start-end-radius', be: 'border-end-end-radius' };
+  return NARROWED[reading][pos].map(c => `${CORNER[c]}:${nubPx}px`).join(';');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   3. VARIANTS
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const VARIANTS = {
+  A: { name: 'Grouped',    note: 'floating card · runs fuse · timestamp below the group' },
+  B: { name: 'Inline meta', note: 'no fusion · timestamp inside the bubble · the control' },
+  C: { name: 'Full-bleed', note: 'no card · gutter rail · tests whether the card is load-bearing' },
+};
+
+const state = {
+  variant: new URLSearchParams(location.search).get('variant')?.toUpperCase() ?? 'A',
+  theme:   'light',
+  nub:     4,
+  reading: 'fused',
+  deleted: false,
+  card:    480,
+};
+
+/* ── shared atoms ───────────────────────────────────────────────────────────── */
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function avatar(p, size = 28) {
+  return `<div class="grid shrink-0 place-items-center rounded-full text-white"
+               style="width:${size}px;height:${size}px;font-size:${size*0.38}px;font-weight:600;
+                      background:hsl(${p.avatarHue} 46% 46%)">${esc(p.displayName[0])}</div>`;
+}
+
+/** Presence dot. UNVERIFIED colour — see the token block. */
+const presence = `<span class="absolute -bottom-px -right-px block h-3 w-3 rounded-full border-2 border-card"
+                        style="background:var(--color-presence)" title="presence — UNVERIFIED green"></span>`;
+
+function bubble(msg, run, { fusion, inlineTime, cap = false }) {
+  const side = msg.author === ME ? 'out' : 'in';
+  const bg = side === 'out' ? 'bg-bubble-out' : 'bg-bubble-in';
+  const ink = side === 'out' ? 'text-ink-on-accent' : 'text-ink';
+  // Variant B never narrows: the override is empty and every corner is the token.
+  const style = fusion ? cornerOverrides(run.pos, state.reading, state.nub) : '';
+  // The width cap goes on the bubble, never on the wrapper that justifies it. On a
+  // flex-1 wrapper the cap would shrink the whole column and re-anchor the far edge,
+  // so bubbles and their own metadata would stop lining up.
+  const max = cap ? 'max-w-[74%]' : '';
+
+  const time = inlineTime
+    ? `<span class="ml-2 shrink-0 self-end text-[11px] tabular-nums opacity-70">${esc(msg.at)}</span>`
+    : '';
+
+  return `<div class="enter bubble ${bg} ${ink} w-fit ${max} px-3 py-2 text-[15px] leading-snug"
+               style="${style}">
+            <span>${esc(msg.text)}</span>${time}
+          </div>`;
+}
+
+/** Does this message close its run? A one-message run closes on both edges at once. */
+const isRunEnd = run => run.pos === 'last' || run.pos === 'single';
+
+/**
+ * The metadata row under a run. Timestamps live HERE, never inside the bubble —
+ * the trait that inverts the WhatsApp/iMessage instinct, so it is worth rendering
+ * even in variant B, where everything else is the familiar thing.
+ *
+ * The timestamp shown is the run's LAST message: a group of messages carries the
+ * time of when the group finished, not of each message inside it. A run of one
+ * still carries its own time — a lone message is not exempt.
+ */
+function runMeta(run, messages, side) {
+  const last = messages[run.runEnd];
+  // justify-*, NOT text-right. This is a flex row whose only child is a text node,
+  // so the text is wrapped in an anonymous flex item that shrink-wraps to its own
+  // width: there is no leftover space for text-align to distribute, and the computed
+  // text-align says "right" while the glyphs render on the left. The cross-axis
+  // control is justify-content here; items-end only moves things vertically.
+  const align = side === 'out' ? 'justify-end' : 'justify-start';
+  const tail = run.runLength > 1 ? 'mt-1' : 'mt-0.5';
+  return `<div class="flex ${align} ${tail} px-1 text-[11px] tabular-nums text-ink-faint">
+            ${esc(last.at)}
+          </div>`;
+}
+
+/**
+ * "Seen" — pinned under the LAST outgoing message only.
+ *
+ * DOMAIN COLLISION, deliberately left visible: GLOSSARY.md says a Receipt is a
+ * member's record of how far they have read, that it is never a statement about a
+ * message, and that "Seen" is a word to avoid. Messenger's own UI prints the word
+ * "Seen". Either the copy borrows Messenger's word while the domain keeps its own,
+ * or the glossary gives way. This is a question for the human, not a decision the
+ * prototype should quietly settle by typing the label.
+ */
+function seenUnder(run, messages) {
+  if (!isRunEnd(run)) return '';
+  if (messages[run.runEnd].author !== ME) return '';          // a Receipt is the local user's
+  // Messenger pins "Seen" under the final outgoing message in view — not under the
+  // final message of any kind, and not under the last run the sender happens to own.
+  const lastOutgoing = messages.findLastIndex(m => !m.divider && m.author === ME);
+  if (run.runEnd !== lastOutgoing) return '';
+  return `<div class="mt-0.5 flex justify-end px-1 text-[11px] text-ink-faint">Seen</div>`;
+}
+
+function header() {
+  const group = CONVERSATION.isGroup;
+  return `<header class="card-in flex items-center gap-3 border-b border-hairline bg-card px-4 py-2.5">
+            ${avatar(group ? CONVERSATION : PRIYA, 36)}
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-[15px] font-semibold leading-tight">${esc(CONVERSATION.displayName)}</div>
+              <div class="truncate text-[12px] leading-tight text-ink-muted">
+                ${group ? `${CONVERSATION.members.length} members` : esc(PRIYA.displayName)}
+              </div>
+            </div>
+          </header>`;
+}
+
+function composer() {
+  // Deliberately flat, no bubble around the field. Worth checking against Messenger.
+  return `<div class="flex items-end gap-2 border-t border-hairline bg-card px-3 py-2.5">
+            <div class="relative flex-1">
+              <div class="rounded-[20px] bg-press px-3 py-2 text-[15px] text-ink-faint">Message</div>
+              <span class="absolute bottom-1.5 right-3 text-[10px] text-ink-faint">UNVERIFIED — copy &amp; shape not sourced</span>
+            </div>
+          </div>`;
+}
+
+function divider(label) {
+  return `<div class="my-3 flex items-center justify-center">
+            <span class="rounded-full bg-card px-2.5 py-1 text-[11px] font-medium text-ink-muted shadow-sm">${esc(label)}</span>
+          </div>`;
+}
+
+/** Typing is ephemeral: rendered live, stored nowhere, nothing depends on it. */
+function typingIndicator() {
+  return `<div class="flex items-end gap-2">
+            ${avatar(PRIYA, 24)}
+            <div class="bubble enter bg-bubble-in px-3 py-2.5" style="border-end-end-radius:4px">
+              <span class="flex items-end gap-1">
+                <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-faint"></span>
+                <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-faint [animation-delay:120ms]"></span>
+                <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-faint [animation-delay:240ms]"></span>
+              </span>
+            </div>
+          </div>`;
+}
+
+/* ── VARIANT A — Grouped ────────────────────────────────────────────────────── */
+
+function VariantA(messages) {
+  const runs = computeRuns(messages);
+  const body = [];
+  let i = 0;
+  while (i < messages.length) {
+    const m = messages[i];
+    if (m.divider) { body.push(divider(m.divider)); i++; continue; }
+    const run = runs[i];
+    const side = m.author === ME ? 'out' : 'in';
+    const gap = run.pos === 'first' ? 'mb-2' : 'mb-1';   // tighter inside a run
+    body.push(`<div class="flex ${side === 'out' ? 'justify-end' : 'justify-start'} gap-2 ${gap}">
+                 ${side === 'in' ? avatar(m.author, 28) : ''}
+                 <div class="flex min-w-0 max-w-[74%] flex-col">${bubble(m, run, { fusion: true, inlineTime: false })}</div>
+               </div>`);
+    if (isRunEnd(run)) body.push(runMeta(run, messages, side) + seenUnder(run, messages));
+    i++;
+  }
+  body.push(typingIndicator());
+
+  return `<div class="card-in flex w-full flex-col overflow-hidden rounded-lg bg-card"
+               style="max-width:${state.card}px;box-shadow:0 1px 2px rgba(0,0,0,.1)">
+            ${header()}
+            <div class="flex min-h-[520px] flex-1 flex-col gap-0.5 overflow-y-auto bg-wash px-4 py-4">
+              ${body.join('\n')}
+            </div>
+            ${composer()}
+          </div>`;
+}
+
+/* ── VARIANT B — Inline meta (the control) ──────────────────────────────────── */
+
+function VariantB(messages) {
+  const runs = computeRuns(messages);
+  const body = [];
+  let i = 0;
+  while (i < messages.length) {
+    const m = messages[i];
+    if (m.divider) { body.push(divider(m.divider)); i++; continue; }
+    const run = runs[i];
+    const side = m.author === ME ? 'out' : 'in';
+    body.push(`<div class="mb-2 flex ${side === 'out' ? 'justify-end' : 'justify-start'} gap-2">
+                 ${side === 'in' ? avatar(m.author, 28) : ''}
+                 <div class="flex min-w-0 max-w-[74%] items-end">${bubble(m, run, { fusion: false, inlineTime: true })}</div>
+               </div>`);
+    if (isRunEnd(run)) body.push(seenUnder(run, messages));
+    i++;
+  }
+  body.push(typingIndicator());
+
+  return `<div class="card-in flex w-full flex-col overflow-hidden rounded-lg bg-card"
+               style="max-width:${state.card}px;box-shadow:0 1px 2px rgba(0,0,0,.1)">
+            ${header()}
+            <div class="flex min-h-[520px] flex-1 flex-col gap-0.5 overflow-y-auto bg-wash px-4 py-4">
+              ${body.join('\n')}
+            </div>
+            ${composer()}
+          </div>`;
+}
+
+/* ── VARIANT C — Full-bleed ─────────────────────────────────────────────────── */
+
+function VariantC(messages) {
+  const runs = computeRuns(messages);
+  const body = [];
+  let i = 0;
+  while (i < messages.length) {
+    const m = messages[i];
+    if (m.divider) { body.push(divider(m.divider)); i++; continue; }
+    const run = runs[i];
+    const side = m.author === ME ? 'out' : 'in';
+    const gap = run.pos === 'first' ? 'mb-2' : 'mb-1';
+    body.push(`<div class="flex items-baseline gap-2 ${gap}">
+                 <span class="w-11 shrink-0 text-right text-[11px] tabular-nums text-ink-faint">${esc(m.at)}</span>
+                 <div class="flex min-w-0 flex-1 ${side === 'out' ? 'justify-end' : 'justify-start'}">
+                   ${bubble(m, run, { fusion: true, inlineTime: false, cap: true })}
+                 </div>
+               </div>`);
+    if (isRunEnd(run)) {
+      body.push(`<div class="mb-2 flex items-baseline gap-2">
+                   <span class="w-11 shrink-0"></span>
+                   <div class="flex flex-1 justify-end pr-1 text-[11px] text-ink-faint">
+                     ${seenUnder(run, messages)}
+                   </div>
+                 </div>`);
+    }
+    i++;
+  }
+  body.push(`<div class="flex items-baseline gap-2">${typingIndicator()}</div>`);
+
+  // No card, no radius, no elevation. The wash IS the page.
+  return `<div class="card-in flex min-h-[calc(100dvh-6rem)] w-full flex-col bg-wash">
+            ${header()}
+            <div class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 py-4">${body.join('\n')}</div>
+            ${composer()}
+          </div>`;
+}
+
+const RENDERERS = { A: VariantA, B: VariantB, C: VariantC };
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   4. THE BURST CASE PANEL — every case that is easy to get wrong, side by side.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const CASES = [
+  { label: 'single',       note: 'first == last. The degenerate run.',            build: () => [ msg(0, ME, 'single message') ] },
+  { label: 'run of two',   note: 'Trailing run. Does the last still get its nub?', build: () => [ msg(0, ME,'one'), msg(1, ME,'two') ] },
+  { label: 'run of three', note: 'The ordinary case: first / middle / last.',      build: () => [ msg(0, ME,'one'), msg(1, ME,'two'), msg(2, ME,'three') ] },
+  { label: 'run of five',  note: 'Two middles. Where does middle stop?',           build: () => [0,1,2,3,4].map(n => msg(n, ME, `m${n+1}`)) },
+  { label: 'interrupted',  note: 'A·B·A: three separate runs, each single.',       build: () => [ msg(0, ME,'A'), msg(1, PRIYA,'B'), msg(2, ME,'C') ] },
+  { label: 'last deleted', note: 'Run of 3 minus its last. A middle is promoted — if the state machine was written against the final render instead of recomputed, this is where it breaks.',
+                                                                                   build: () => [ msg(0, ME,'one'), msg(1, ME,'two'), { ...msg(2, ME,'three'), deleted: true } ] },
+  { label: 'divider wrap', note: 'Same author either side of a date divider. One run, or two?',
+                                                                                   build: () => [ msg(0, ME,'before'), { divider: 'Yesterday' }, msg(1, ME,'after') ] },
+  { label: 'incoming run', note: 'Mirror check — the narrow corners must be on the LEFT for incoming.',
+                                                                                   build: () => [ msg(0, PRIYA,'one'), msg(1, PRIYA,'two'), msg(2, PRIYA,'three') ] },
+  { label: 'tail: outgoing', note: 'Transcript ends on a run from ME. "Seen" belongs under its last message. The same run from Priya gets no Seen at all — a Receipt is the local user\'s, never a property of a message.',
+                                                                                   build: () => [ msg(0, PRIYA,'hi'), msg(1, ME,'one'), msg(2, ME,'two') ] },
+];
+const msg = (i, a, t) => ({ id: `c${i}`, author: a, text: t, at: '09:20' });
+
+function renderCases() {
+  const grid = document.getElementById('cases-grid');
+  grid.innerHTML = CASES.map(c => {
+    const live = c.build().filter(m => !m.deleted && !m.divider);
+    const all  = c.build();
+    const runs = computeRuns(all);
+    const rendered = [];
+    let i = 0;
+    while (i < all.length) {
+      const m = all[i];
+      if (m.divider) {
+        rendered.push(`<div class="flex justify-center py-0.5 text-[10px] text-ink-faint">· ${esc(m.divider)} ·</div>`);
+        i++; continue;
+      }
+      const run = runs[i];
+      const side = m.author === ME ? 'out' : 'in';
+      rendered.push(`<div class="flex ${side === 'out' ? 'justify-end' : 'justify-start'} ${run.pos === 'first' ? 'mb-2' : 'mb-1'}">
+          <div class="flex min-w-0 max-w-[78%]">
+            <div class="bubble w-fit ${side === 'out' ? 'bg-bubble-out' : 'bg-bubble-in'} ${side === 'out' ? 'text-ink-on-accent' : 'text-ink'} px-3 py-2 text-[13px] leading-snug"
+                 style="${cornerOverrides(run.pos, state.reading, state.nub)}">
+              ${esc(m.text)}<span class="ml-1.5 text-[10px] opacity-60">${run.pos}</span>
+            </div>
+          </div>
+        </div>`);
+      i++;
+    }
+    return `<div class="rounded border border-hairline p-3">
+              <div class="mb-2 font-semibold">${esc(c.label)}</div>
+              <div class="mb-2">${rendered.join('')}</div>
+              <div class="text-ink-muted">${esc(c.note)}</div>
+            </div>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   5. THE TOKEN INSPECTOR — the actual deliverable, read live off the document.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const TOKENS = [
+  '--radius', '--radius-xl', '--radius-lg',
+  '--color-accent', '--color-wash', '--color-card',
+  '--color-bubble-in', '--color-bubble-out',
+  '--color-ink', '--color-ink-muted', '--color-ink-faint', '--color-ink-on-accent',
+  '--color-hairline', '--color-selected', '--color-focus', '--color-presence',
+  '--ease-messenger-in', '--ease-messenger-out', '--duration-enter', '--duration-exit',
+];
+const NOTES = {
+  '--color-presence': 'INFERRED — no --presence-* token observed in any capture',
+  '--color-focus':    'opaque — shadcn ring-ring/50 is ~2.4:1 on white, fails 1.4.11',
+  '--radius-xl':      'every bubble radius in the transcript resolves through this',
+  '--radius-lg':      'the floating card in A and B',
+};
+
+function renderTokens() {
+  const cs = getComputedStyle(document.documentElement);
+  const grid = document.getElementById('token-grid');
+  grid.innerHTML = TOKENS.map(t => {
+    const v = cs.getPropertyValue(t).trim();
+    const isColour = t.startsWith('--color');
+    const chip = isColour
+      ? `<span class="swatch inline-block h-3 w-3 shrink-0 rounded-full border border-hairline align-middle" style="background:${v.includes('var(') ? 'var(--color-accent)' : v}"></span>`
+      : '';
+    const note = NOTES[t] ? `<span class="block text-ink-faint">${esc(NOTES[t])}</span>` : '';
+    return `<div class="flex items-start gap-2">
+              <span class="w-[13.5rem] shrink-0 text-ink-muted">${t}</span>
+              ${chip}
+              <span class="break-all">${esc(v) || '<span class="text-ink-faint">— NOT EMITTED —</span>'}</span>${note}
+            </div>`;
+  }).join('') + `
+    <div class="col-span-full mt-3 border-t border-hairline pt-3">
+      <span class="font-semibold">the radius arithmetic</span>
+      <span class="text-ink-muted">— 12.857 × 1.4 = 17.9998px. Stock <code>rounded-xl</code> lands on Messenger's exact 18px bubble, and every corner of every bubble in the transcript above resolves through it. One number moves forty components; do not round it to 12.86.</span>
+    </div>
+    <div class="col-span-full mt-1">
+      <span class="font-semibold">what dark does NOT change</span>
+      <span class="text-ink-muted">— <code>--color-accent</code>, and therefore <code>--color-bubble-out</code>. Flip the theme and check the outgoing bubble does not move. If it darkens, it is no longer Messenger's.</span>
+    </div>
+    <div class="col-span-full mt-1">
+      <span class="font-semibold">the trap this build fell into once</span>
+      <span class="text-ink-muted">— Tailwind v4 tree-shakes any theme variable no used class references. A token declared but never rendered is silently gone from the compiled CSS: <code>--radius-xl</code> was empty and <code>rounded-xl</code> resolved to 0px until the bubbles were made to render through it. The first draft of this file declared the trick in a comment and hardcoded "18px" in JS, and passed a glance. A token with no caller is not a token.</span>
+    </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   6. WIRING
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const stage = document.getElementById('stage');
+
+function transcript() {
+  return state.deleted ? TRANSCRIPT.filter(m => m.id !== DELETABLE) : TRANSCRIPT;
+}
+
+function render() {
+  document.documentElement.classList.toggle('dark', state.theme === 'dark');
+
+  stage.innerHTML = RENDERERS[state.variant](transcript());
+  // Keep the column honest when it has to shrink.
+  stage.firstElementChild.style.maxWidth = state.variant === 'C' ? 'none' : `${state.card}px`;
+
+  const v = VARIANTS[state.variant];
+  document.getElementById('variant-name').innerHTML = `<b>${esc(v.name)}</b> — ${esc(v.note)}`;
+  document.getElementById('proto-switch-label').textContent = `${state.variant} (${v.name})`;
+
+  for (const [k, id] of [['theme','lbl-theme'], ['nub','lbl-nub'], ['reading','lbl-reading'], ['card','lbl-card']])
+    document.getElementById(id).textContent = String(state[k]).replace('px', 'px');
+
+  renderCases();
+  renderTokens();
+}
+
+function setVariant(next) {
+  state.variant = next;
+  const u = new URL(location.href);
+  u.searchParams.set('variant', next);
+  history.replaceState(null, '', u);
+  render();
+}
+
+document.addEventListener('click', (e) => {
+  const cyc = e.target.closest('[data-cycle]');
+  if (cyc) {
+    const keys = Object.keys(VARIANTS);
+    const i = keys.indexOf(state.variant);
+    return setVariant(keys[(i + Number(cyc.dataset.cycle) + keys.length) % keys.length]);
+  }
+  const t = e.target.closest('[data-toggle]');
+  if (!t) return;
+  switch (t.dataset.toggle) {
+    case 'theme':   state.theme = state.theme === 'light' ? 'dark' : 'light'; break;
+    case 'nub':     state.nub = state.nub === 4 ? 6 : 4; break;
+    case 'reading': state.reading = state.reading === 'fused' ? 'nub' : 'fused'; break;
+    case 'deleted': state.deleted = !state.deleted; break;
+    case 'card':    state.card = state.card === 480 ? 380 : state.card === 380 ? 300 : 480; break;
+    case 'replay':  render(); return;                 // .enter animations replay on re-render
+    case 'cases':   { const e2 = document.getElementById('proto-cases'); e2.hidden = !e2.hidden; return; }
+    case 'tokens':  { const e2 = document.getElementById('proto-inspect'); e2.hidden = !e2.hidden; return; }
+  }
+  render();
+});
+
+// Arrow keys cycle, but never while the operator is typing. There is no composer
+// wired up in this prototype, so the guard is kept honest for the real route.
+document.addEventListener('keydown', (e) => {
+  const typing = ['INPUT','TEXTAREA'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  const keys = Object.keys(VARIANTS);
+  const i = keys.indexOf(state.variant);
+  if (e.key === 'ArrowRight') { e.preventDefault(); setVariant(keys[(i + 1) % keys.length]); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); setVariant(keys[(i - 1 + keys.length) % keys.length]); }
+});
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,421 @@
+<!doctype html>
+<!--
+  PROTOTYPE — THROWAWAY. Not vartalap. Do not promote this file.
+
+  Wayfinder ticket "Composer and media sending spec" (#16). These three states were
+  decided in prose and no human has ever seen them:
+
+    A  everything ready          — the ordinary case
+    B  mid-flight                — pressing send removes NOTHING from the tray
+    C  send failed (409)         — a buggy client; discard is opt-in, never automatic
+
+  Variants via ?variant=A|B|C.
+
+  The token block is ADR 0002 verbatim. Do not change a value here without changing
+  the ADR.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE — composer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style type="text/tailwindcss">
+@theme {
+  /* ── scale anchor ────────────────────────────────────────────────────────────
+     One number moves forty components. shadcn's scale is --radius * multipliers;
+     --radius-xl lands on Messenger's exact 18px bubble without any component knowing
+     the value 18. Do not round this to 12.86 — 12.857 * 1.4 = 17.9998. */
+  --radius: 12.857px;
+  --radius-xl: calc(var(--radius) * 1.4);   /* 17.9998px  ==  Messenger's bubble */
+  --radius-lg: calc(var(--radius) * 0.622); /*   7.9971px  ==  Messenger's card   */
+  --radius-2xl: calc(var(--radius) * 2);    /*  25.714px   ==  the composer        */
+
+  /* NOTE: there is deliberately NO --radius-sm. A theme variable that no used
+     class references is tree-shaken out of the compiled CSS by Tailwind v4's build
+     and simply stops existing — a token declared but never rendered is a token
+     that is gone. Anything that looks like a token but is currently used only in
+     one hand-written inline style belongs here as a literal until it earns a class. */
+
+  /* ── brand: ONE value, byte-identical in both themes ─────────────────────────
+     Meta sets the outgoing bubble to the brand accent in light and dark alike.
+     This single fact is most of why dark-mode Messenger looks like Messenger. */
+  --color-accent: #0084FF;          /* classic Messenger blue */
+
+  /* ── surfaces ─────────────────────────────────────────────────────────────── */
+  --color-wash:        #F0F2F5;     /* --web-wash              */
+  --color-card:        #FFFFFF;     /* floating card           */
+  --color-elevated:    #FFFFFF;
+  /* Two names, one value: the neutral fill the settings surfaces and the composer's
+     own well are the same colour, and the prototypes that need them each named it
+     locally before the block was ever synced. Collapse them when a real token name
+     is settled. */
+  --color-surface:        #F0F0F0;
+  --color-surface-composer: #F0F0F0;
+
+  /* ── bubbles ──────────────────────────────────────────────────────────────── */
+  --color-bubble-in:   #F0F0F0;
+  --color-bubble-out:  var(--color-accent);   /* literally var(--accent), per Meta */
+
+  /* ── ink ──────────────────────────────────────────────────────────────────── */
+  --color-ink:           #050505;
+  --color-ink-muted:     #65676B;
+  --color-ink-faint:     #8A8D91;
+  --color-ink-on-accent: #FFFFFF;
+
+  /* ── lines and states ─────────────────────────────────────────────────────── */
+  --color-hairline: rgba(0, 0, 0, 0.06);
+  --color-selected:  #EBF5FF;       /* --hosted-view-selected-state */
+  --color-press:     rgba(0, 0, 0, 0.04);
+
+  /* ── status ───────────────────────────────────────────────────────────────── */
+  --color-danger: #D93025;
+  --color-warn:   #B26B00;
+
+  /* ── focus ──────────────────────────────────────────────────────────────────
+     shadcn's default is focus-visible:ring-ring/50, which measures ~2.4:1 on white
+     — under the 3:1 non-text minimum of WCAG 1.4.11. Opaque in both themes. */
+  --color-focus: #0866FF;
+
+  /* ── UNVERIFIED ─────────────────────────────────────────────────────────────
+     #31A73B is Meta's canonical green. No --presence-* token has been found in any
+     capture, so this value is inferred, not observed. Compare against messenger.com. */
+  --color-presence: #31A73B;
+
+  /* ── motion ─────────────────────────────────────────────────────────────────
+     Enter slower than exit. 280 in / 200 out. */
+  --ease-messenger-in:  cubic-bezier(0.14, 1, 0.34, 1);
+  --ease-messenger-out: cubic-bezier(0.45, 0.1, 0.2, 1);
+  --duration-enter: 280ms;
+  --duration-exit:  200ms;
+}
+
+/* Dark is its own token set, not an inversion. Note what does NOT change: accent,
+   bubble-out, and therefore the outgoing bubble colour. */
+.dark {
+  --color-wash:      #18191A;
+  --color-card:      #242526;
+  --color-elevated:  #3A3B3C;
+  --color-surface:        #2F2F2F;
+  --color-surface-composer: #2F2F2F;
+  --color-bubble-in: #303030;
+  --color-ink:       #E9E9E9;
+  --color-ink-muted: #B0B3B8;
+  --color-ink-faint: #8A8D91;
+  --color-hairline:  rgba(255, 255, 255, 0.08);
+  --color-selected:  #303030;
+  --color-press:     rgba(255, 255, 255, 0.06);
+  --color-danger:    #F28B82;
+  --color-warn:      #E0A33E;
+  --color-focus:     #66A3FF;
+}
+@layer base {
+  html { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  body { background: var(--color-wash); color: var(--color-ink); }
+  :where(button, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 6px;
+  }
+  .bubble {
+    border-start-start-radius: var(--radius-xl); border-start-end-radius: var(--radius-xl);
+    border-end-start-radius: var(--radius-xl);   border-end-end-radius: var(--radius-xl);
+  }
+}
+@layer components {
+  .enter { animation: msg-in var(--duration-enter) var(--ease-messenger-in) both; }
+  @keyframes msg-in { from { opacity:0; transform: translateY(6px) scale(.985);} to { opacity:1; transform:none; } }
+}
+#chrome, #notes { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body class="min-h-dvh antialiased">
+
+<div id="chrome" class="sticky top-0 z-50 flex flex-wrap items-center gap-2 border-b border-hairline bg-card px-3 py-2 text-[11px]">
+  <span class="rounded bg-press px-1.5 py-0.5 font-semibold">PROTOTYPE</span>
+  <span id="variant-name" class="text-ink-muted"></span>
+  <span class="flex-1"></span>
+  <button data-act="theme" class="rounded border border-hairline px-2 py-1 hover:bg-press">theme: <b id="lbl-theme">light</b></button>
+  <button data-act="ime" class="rounded border border-hairline px-2 py-1 hover:bg-press">IME: <b id="lbl-ime">off</b></button>
+  <button data-act="notes" class="rounded border border-hairline px-2 py-1 hover:bg-press">ADR notes</button>
+</div>
+
+<main class="flex justify-center p-4 sm:p-8">
+  <div class="flex w-full flex-col overflow-hidden rounded-lg bg-card" style="max-width:480px;box-shadow:0 1px 2px rgba(0,0,0,.1)">
+
+    <header class="flex items-center gap-3 border-b border-hairline px-4 py-2.5">
+      <div class="grid h-9 w-9 place-items-center rounded-full text-[14px] font-semibold text-white" style="background:hsl(330 46% 46%)">P</div>
+      <div class="min-w-0 flex-1">
+        <div class="text-[15px] font-semibold leading-tight">Priya</div>
+        <div class="text-[12px] leading-tight text-ink-muted">Active within the last 45 seconds</div>
+      </div>
+    </header>
+
+    <div class="flex min-h-[280px] flex-col justify-end gap-0.5 bg-wash px-4 py-4">
+      <div id="typing-slot"></div>
+      <div id="outgoing"></div>
+    </div>
+
+    <!-- Attachments: a TRAY, not a send button's excuse. Pressing send never removes
+         anything from here — see the panel under the composer. -->
+    <div id="tray" class="hidden border-t border-hairline px-3 pt-2.5"></div>
+
+    <div class="border-t border-hairline px-3 py-2.5">
+      <!-- The draft is cleared on QUEUE-ENTRY. The chip is what remains. -->
+      <div id="draft-chip" class="hidden items-center gap-2 pb-2 text-[11px] text-ink-muted">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.2"/><path d="M6 3.5V6l1.8 1.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        <span>Field cleared on queue-entry — it left with the message, not with the send.</span>
+      </div>
+
+      <div class="flex items-end gap-2">
+        <!-- ONE surface: attach INSIDE, send OUTSIDE. -->
+        <div class="flex max-h-[160px] flex-1 items-end gap-1 overflow-y-auto rounded-2xl bg-surface-composer px-2 py-1.5">
+          <button id="attach" class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-ink-muted hover:bg-press" title="Attach" aria-label="Attach">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M13.5 7.5l-5.2 5.2a2.6 2.6 0 01-3.7-3.7l5.6-5.6a1.8 1.8 0 012.5 2.5l-5.5 5.6a.9.9 0 01-1.3-1.3l4.9-4.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <textarea id="field" rows="1" placeholder="Message" class="max-h-[136px] flex-1 resize-none bg-transparent py-2 text-[15px] leading-snug outline-none placeholder:text-ink-faint"></textarea>
+        </div>
+        <button id="send" class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent text-white transition-[opacity,transform] duration-200" style="transition-timing-function: cubic-bezier(0.45,0.1,0.2,1)" title="Send" aria-label="Send">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9M8.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- the answer to "what does pressing send actually do" -->
+<aside id="verdict" class="mx-auto mb-8 max-w-2xl rounded-lg border border-hairline bg-card p-4 text-[13px]"></aside>
+
+<section id="notes" hidden class="mx-auto mb-24 max-w-2xl rounded-lg border border-hairline bg-card p-4 text-[11px] leading-relaxed">
+  <h2 class="mb-2 text-sm font-semibold">ADR behind each choice</h2>
+  <ul class="list-disc space-y-1 pl-4 text-ink-muted">
+    <li><b>One surface, attach inside, send outside.</b> 36px circles; attach is icon-only with no fill until hover; send is accent with a white glyph. The surface grows to 160px then scrolls internally.</li>
+    <li><b>Enter to send needs three guards, and no one is sufficient.</b> A flag we own from <code>onCompositionStart</code>/<code>onCompositionEnd</code>, cleared in a <code>queueMicrotask</code> — that microtask is what survives Safari's ordering — plus the property, plus a key-event guard. This is not a solved problem; it is three separate ways a browser gets IME composition wrong. Use <b>IME</b> in the top bar to see Enter decline to send.</li>
+    <li><b>Media stages before the message exists.</b> Pressing send sends the text and every READY attachment and removes nothing from the tray. Blocking send greys out the button while a 12MB photo uploads over hotel wifi; silently dropping unfinished attachments is the exact failure the durable spine exists to exclude.</li>
+    <li><b>The draft clears on queue-entry, not on send.</b> Once a message is queued it owns its text; the field is free for the next one.</li>
+    <li><b>A 409 is terminal and says so.</b> A reused idempotency key with different content is a buggy client, and retrying cannot help. But <b>discard is opt-in</b> — a message someone pressed send on is never discarded by the system.</li>
+    <li><b>Typing expires on a client timer</b>, because the sender may simply have closed their tab. A server-side timer invents a fact.</li>
+    <li><b>The focus ring is opaque</b> in both themes — shadcn's <code>ring-ring/50</code> is about 2.4:1 on white and fails WCAG 1.4.11.</li>
+  </ul>
+</section>
+
+<div class="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2">
+  <div class="flex items-center gap-1 rounded-full bg-neutral-900 p-1 text-white shadow-2xl ring-1 ring-white/10">
+    <button data-cycle="-1" aria-label="Previous variant" class="grid h-9 w-9 place-items-center rounded-full text-lg leading-none hover:bg-white/15">‹</button>
+    <span id="switch-label" class="min-w-[16rem] px-2 text-center text-xs font-medium tracking-wide"></span>
+    <button data-cycle="1" aria-label="Next variant" class="grid h-9 w-9 place-items-center rounded-full text-lg leading-none hover:bg-white/15">›</button>
+  </div>
+</div>
+
+<script>
+const VARIANTS = {
+  A: { name: 'Everything ready', note: 'text + two ready attachments' },
+  B: { name: 'Mid-flight',        note: 'one uploading, one failed, one ready' },
+  C: { name: 'Send failed',       note: '409 — a buggy client reused the key' },
+};
+
+const state = {
+  variant: (new URLSearchParams(location.search).get('variant') || 'A').toUpperCase(),
+  theme: 'light',
+  ime: false,
+};
+
+const FIXTURES = {
+  A: { text: 'shipping the burst fix now', tiles: [
+    { name: 'screenshot.png', state: 'ready' },
+    { name: 'corners.json',   state: 'ready' },
+  ] },
+  B: { text: 'shipping the burst fix now', tiles: [
+    { name: 'burst-closeup.png', state: 'uploading', pct: 62 },
+    { name: 'heap.heic',        state: 'failed', reason: 'not an allowlisted image type' },
+    { name: 'corners.json',     state: 'ready' },
+  ] },
+  C: { text: 'shipping the burst fix now', tiles: [
+    { name: 'corners.json', state: 'ready' },
+  ] },
+};
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const field = document.getElementById('field');
+
+/* ── Enter to send: three guards, no one sufficient ─────────────────────────── */
+let composing = false;
+let composingByHand = false;
+
+function isComposing(e) {
+  return composing || composingByHand || e.isComposing === true || e.keyCode === 229;
+}
+
+field.addEventListener('compositionstart', () => { composing = true; renderIme(); });
+field.addEventListener('compositionend', () => {
+  queueMicrotask(() => { composing = false; renderIme(); });   // survives Safari's ordering
+});
+field.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  if (e.shiftKey) return;               // Shift+Enter is a newline, never a send
+  if (isComposing(e)) return;           // belt 1 + 2
+  e.preventDefault();                   // belt 3: we decided to send
+  send();
+});
+field.addEventListener('input', autosize);
+
+/* ── sending ───────────────────────────────────────────────────────────────── */
+function send() {
+  const fx = FIXTURES[state.variant];
+  if (state.variant === 'C') return;                 // terminal; nothing to retry
+  const ready = fx.tiles.filter(t => t.state === 'ready');
+  const kept  = fx.tiles.filter(t => t.state !== 'ready');
+
+  document.getElementById('draft-chip').className =
+    'flex items-center gap-2 pb-2 text-[11px] text-ink-muted';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'enter bubble mb-1 ml-auto flex w-fit max-w-[74%] flex-col gap-1 bg-bubble-out px-3 py-2 text-[15px] leading-snug text-ink-on-accent';
+  bubble.innerHTML = `<span>${esc(fx.text)}</span>` +
+    (ready.length ? `<span class="flex gap-1">${ready.map(t =>
+      `<span class="rounded bg-white/20 px-1.5 py-0.5 text-[11px]">${esc(t.name)}</span>`).join('')}</span>` : '');
+  document.getElementById('outgoing').appendChild(bubble);
+
+  // The draft leaves WITH the message. The field is now free.
+  field.value = '';
+  autosize();
+
+  // …and NOTHING leaves the tray. Unfinished tiles stay, visibly.
+  if (kept.length) state.keptAfterSend = kept;
+  render();
+}
+
+function autosize() {
+  field.style.height = 'auto';
+  field.style.height = Math.min(136, field.scrollHeight) + 'px';
+}
+
+/* ── tiles ─────────────────────────────────────────────────────────────────── */
+function tileHTML(t) {
+  const base = 'flex w-[124px] shrink-0 flex-col gap-1.5 rounded-lg bg-card p-1.5 ring-1';
+  if (t.state === 'uploading') return `<div class="${base} ring-hairline">
+      <div class="grid h-16 place-items-center rounded bg-surface-composer text-ink-faint"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4" width="15" height="12" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 13l4-4 3.2 3.2 2.6-2.4L17.5 14" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></div>
+      <div class="h-1 overflow-hidden rounded-full bg-hairline"><div class="h-full bg-accent" style="width:${t.pct ?? 40}%"></div></div>
+      <div class="truncate text-[10px] text-ink-muted">${esc(t.name)} · ${t.pct ?? 40}%</div>
+    </div>`;
+  if (t.state === 'failed') return `<div class="${base} ring-[color:var(--color-danger)]/40">
+      <div class="grid h-16 place-items-center rounded bg-surface-composer" style="color:var(--color-danger)"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7.2" stroke="currentColor" stroke-width="1.3"/><path d="M10 6v5M10 13.6v.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></div>
+      <div class="truncate text-[10px]" style="color:var(--color-danger)">${esc(t.name)}</div>
+      <div class="truncate text-[10px] text-ink-faint">${esc(t.reason || 'upload failed')}</div>
+    </div>`;
+  return `<div class="${base} ring-hairline">
+      <div class="grid h-16 place-items-center rounded bg-surface-composer text-ink-muted"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3.5" width="14" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M2 12l3.6-3.6L8.4 12l2.4-2.2L16 13.5" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg></div>
+      <div class="truncate text-[10px] text-ink-muted">${esc(t.name)}</div>
+      <div class="text-[10px] text-ink-faint">Ready to send</div>
+    </div>`;
+}
+
+function renderTray() {
+  const tray = document.getElementById('tray');
+  const kept = state.keptAfterSend || FIXTURES[state.variant].tiles;
+  if (state.variant !== 'C' && !kept.length) { tray.className = 'hidden border-t border-hairline px-3 pt-2.5'; tray.innerHTML = ''; return; }
+  tray.className = 'border-t border-hairline px-3 pt-2.5';
+  tray.innerHTML = `
+    <div class="flex gap-2 overflow-x-auto pb-2.5">${kept.map(tileHTML).join('')}</div>
+    ${state.variant === 'C' ? `
+      <div class="mb-2.5 rounded-lg p-3 text-[12px]" style="background:color-mix(in srgb, var(--color-danger) 10%, transparent);color:var(--color-danger)">
+        <div class="mb-1 font-semibold">This message could not be sent.</div>
+        <div class="text-ink-muted">The client reused one id for two different messages. That is a bug in the app, not a network problem — retrying cannot fix it.</div>
+      </div>
+      <div class="mb-2.5 flex gap-2">
+        <button class="rounded-lg bg-press px-3 py-1.5 text-[13px] font-medium">Try again</button>
+        <button class="rounded-lg px-3 py-1.5 text-[13px]" style="color:var(--color-danger)">Discard this message</button>
+      </div>
+      <div class="pb-2.5 text-[11px] text-ink-faint">The system will not discard it for you. That decision is yours, on a message you can still see.</div>
+    ` : ''}`;
+}
+
+/* ── typing ────────────────────────────────────────────────────────────────── */
+let typingTimer = null;
+function showTyping() {
+  document.getElementById('typing-slot').innerHTML = `
+    <div class="mb-1 flex items-end gap-2">
+      <div class="grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white" style="background:hsl(330 46% 46%)">P</div>
+      <div class="bubble bg-bubble-in px-3 py-2.5" style="border-end-end-radius:4px">
+        <span class="flex items-end gap-1">
+          <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-faint"></span>
+          <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-faint" style="animation-delay:120ms"></span>
+          <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-faint" style="animation-delay:240ms"></span>
+        </span>
+      </div>
+    </div>`;
+  clearTimeout(typingTimer);
+  typingTimer = setTimeout(() => { document.getElementById('typing-slot').innerHTML = ''; }, 4000);
+}
+
+function renderIme() {
+  document.getElementById('lbl-ime').textContent = composingByHand ? 'composing' : composing ? 'composing' : 'off';
+  const on = composing || composingByHand;
+  document.getElementById('field').style.boxShadow = on ? '0 0 0 2px var(--color-focus)' : '';
+}
+
+function renderVerdict() {
+  const v = VARIANTS[state.variant];
+  const bodies = {
+    A: 'Send is enabled. Both attachments are ready, so everything in the tray leaves with the message.',
+    B: '<b>Press send.</b> The text and <i>corners.json</i> go. <b>burst-closeup.png</b> is still uploading and <b>heap.heic</b> failed — both stay in the tray, visibly, with their reasons. Nothing is removed by pressing send.',
+    C: 'Send already happened and came back <b>409</b>. It is terminal: the app reused one id for two messages, which is a bug in the app. The row stays until you decide.',
+  };
+  document.getElementById('verdict').innerHTML =
+    `<div class="mb-1 font-semibold">${esc(state.variant)} — ${esc(v.name)}</div><div class="text-ink-muted">${bodies[state.variant]}</div>`;
+}
+
+function render() {
+  const fx = FIXTURES[state.variant];
+  if (state.variant !== 'C' && field.value === '' && !document.getElementById('outgoing').children.length) {
+    field.value = fx.text;
+  }
+  document.getElementById('variant-name').textContent = `${VARIANTS[state.variant].name} — ${VARIANTS[state.variant].note}`;
+  document.getElementById('switch-label').textContent = `${state.variant} (${VARIANTS[state.variant].name})`;
+  renderTray();
+  renderVerdict();
+  autosize();
+}
+
+document.addEventListener('click', (e) => {
+  const c = e.target.closest('[data-cycle]');
+  if (c) {
+    const keys = Object.keys(VARIANTS), i = keys.indexOf(state.variant);
+    return setVariant(keys[(i + Number(c.dataset.cycle) + keys.length) % keys.length]);
+  }
+  const a = e.target.closest('[data-act]');
+  if (a) {
+    if (a.dataset.act === 'theme') { state.theme = state.theme === 'light' ? 'dark' : 'light';
+      document.documentElement.classList.toggle('dark', state.theme === 'dark');
+      document.getElementById('lbl-theme').textContent = state.theme; return; }
+    if (a.dataset.act === 'ime') { composingByHand = !composingByHand; renderIme(); return; }
+    if (a.dataset.act === 'notes') { const n = document.getElementById('notes'); n.hidden = !n.hidden; return; }
+  }
+  if (e.target.closest('#send')) send();
+  if (e.target.closest('#attach')) showTyping();
+});
+
+function setVariant(next) {
+  state.variant = next;
+  state.keptAfterSend = null;
+  document.getElementById('outgoing').innerHTML = '';
+  document.getElementById('draft-chip').className = 'hidden items-center gap-2 pb-2 text-[11px] text-ink-muted';
+  field.value = '';
+  const u = new URL(location.href); u.searchParams.set('variant', next);
+  history.replaceState(null, '', u);
+  render();
+}
+
+document.addEventListener('keydown', (e) => {
+  const typing = ['INPUT','TEXTAREA'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  const keys = Object.keys(VARIANTS), i = keys.indexOf(state.variant);
+  if (e.key === 'ArrowRight') { e.preventDefault(); setVariant(keys[(i + 1) % keys.length]); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); setVariant(keys[(i - 1 + keys.length) % keys.length]); }
+});
+
+render(); showTyping();
+</script>
+</body>
+</html>

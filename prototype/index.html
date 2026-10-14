@@ -1,0 +1,249 @@
+<!doctype html>
+<!--
+  PROTOTYPE HUB — THROWAWAY. Not vartalap. Do not promote any of this into apps/.
+
+  The `@theme` block below is spliced in verbatim from messenger-shell/index.html,
+  not retyped, because `bun run check:tokens` compares it byte-for-byte across every
+  prototype. That script is load-bearing: ADR 0002's values are verified by
+  measurement, and five hand-maintained copies of a token block will drift.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE — hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style type="text/tailwindcss">
+/* ═══════════════════════════════════════════════════════════════════════════════
+   THE DELIVERABLE: the `messenger` token block.
+   This is the thing under review, not the markup below it.
+
+   Deliberate: plain `@theme`, NOT `@theme inline`. Tailwind v4's `@theme inline`
+   pastes the literal value into each utility (`.bg-wash { background-color:#F0F2F5 }`),
+   which would freeze every token at build time and make the `.dark` overrides below
+   inert. Plain `@theme` emits real custom properties on :root and utilities reference
+   them, so a `.dark` scope re-themes the whole system by reassigning a variable.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+@theme {
+  /* ── scale anchor ────────────────────────────────────────────────────────────
+     One number moves forty components. shadcn's scale is --radius * multipliers;
+     --radius-xl lands on Messenger's exact 18px bubble without any component knowing
+     the value 18. Do not round this to 12.86 — 12.857 * 1.4 = 17.9998. */
+  --radius: 12.857px;
+  --radius-xl: calc(var(--radius) * 1.4);   /* 17.9998px  ==  Messenger's bubble */
+  --radius-lg: calc(var(--radius) * 0.622); /*   7.9971px  ==  Messenger's card   */
+  --radius-2xl: calc(var(--radius) * 2);    /*  25.714px   ==  the composer        */
+
+  /* NOTE: there is deliberately NO --radius-sm. A theme variable that no used
+     class references is tree-shaken out of the compiled CSS by Tailwind v4's build
+     and simply stops existing — a token declared but never rendered is a token
+     that is gone. Anything that looks like a token but is currently used only in
+     one hand-written inline style belongs here as a literal until it earns a class. */
+
+  /* ── brand: ONE value, byte-identical in both themes ─────────────────────────
+     Meta sets the outgoing bubble to the brand accent in light and dark alike.
+     This single fact is most of why dark-mode Messenger looks like Messenger. */
+  --color-accent: #0084FF;          /* classic Messenger blue */
+
+  /* ── surfaces ─────────────────────────────────────────────────────────────── */
+  --color-wash:        #F0F2F5;     /* --web-wash              */
+  --color-card:        #FFFFFF;     /* floating card           */
+  --color-elevated:    #FFFFFF;
+  /* Two names, one value: the neutral fill the settings surfaces and the composer's
+     own well are the same colour, and the prototypes that need them each named it
+     locally before the block was ever synced. Collapse them when a real token name
+     is settled. */
+  --color-surface:        #F0F0F0;
+  --color-surface-composer: #F0F0F0;
+
+  /* ── bubbles ──────────────────────────────────────────────────────────────── */
+  --color-bubble-in:   #F0F0F0;
+  --color-bubble-out:  var(--color-accent);   /* literally var(--accent), per Meta */
+
+  /* ── ink ──────────────────────────────────────────────────────────────────── */
+  --color-ink:           #050505;
+  --color-ink-muted:     #65676B;
+  --color-ink-faint:     #8A8D91;
+  --color-ink-on-accent: #FFFFFF;
+
+  /* ── lines and states ─────────────────────────────────────────────────────── */
+  --color-hairline: rgba(0, 0, 0, 0.06);
+  --color-selected:  #EBF5FF;       /* --hosted-view-selected-state */
+  --color-press:     rgba(0, 0, 0, 0.04);
+
+  /* ── status ───────────────────────────────────────────────────────────────── */
+  --color-danger: #D93025;
+  --color-warn:   #B26B00;
+
+  /* ── focus ──────────────────────────────────────────────────────────────────
+     shadcn's default is focus-visible:ring-ring/50, which measures ~2.4:1 on white
+     — under the 3:1 non-text minimum of WCAG 1.4.11. Opaque in both themes. */
+  --color-focus: #0866FF;
+
+  /* ── UNVERIFIED ─────────────────────────────────────────────────────────────
+     #31A73B is Meta's canonical green. No --presence-* token has been found in any
+     capture, so this value is inferred, not observed. Compare against messenger.com. */
+  --color-presence: #31A73B;
+
+  /* ── motion ─────────────────────────────────────────────────────────────────
+     Enter slower than exit. 280 in / 200 out. */
+  --ease-messenger-in:  cubic-bezier(0.14, 1, 0.34, 1);
+  --ease-messenger-out: cubic-bezier(0.45, 0.1, 0.2, 1);
+  --duration-enter: 280ms;
+  --duration-exit:  200ms;
+}
+
+/* Dark is its own token set, not an inversion. Note what does NOT change: accent,
+   bubble-out, and therefore the outgoing bubble colour. */
+.dark {
+  --color-wash:      #18191A;
+  --color-card:      #242526;
+  --color-elevated:  #3A3B3C;
+  --color-surface:        #2F2F2F;
+  --color-surface-composer: #2F2F2F;
+  --color-bubble-in: #303030;
+  --color-ink:       #E9E9E9;
+  --color-ink-muted: #B0B3B8;
+  --color-ink-faint: #8A8D91;
+  --color-hairline:  rgba(255, 255, 255, 0.08);
+  --color-selected:  #303030;
+  --color-press:     rgba(255, 255, 255, 0.06);
+  --color-danger:    #F28B82;
+  --color-warn:      #E0A33E;
+  --color-focus:     #66A3FF;
+}
+
+@layer base {
+  html { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  body { background: var(--color-wash); color: var(--color-ink); }
+
+  /* The fixed WCAG 1.4.11 fix: opaque ring, both themes. */
+  :where(a, button, [tabindex], textarea, input):focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /* Bubbles carry four independent corners. Tail-less by construction: there is no
+     tail element, and no pseudo-element faking one. The absence is deliberate.
+
+     The base radius is the TOKEN, not a literal. 12.857 × 1.4 = 17.9998px, and
+     nothing here knows the number 18. Only the two inline-end corners a burst
+     narrows are overridden inline, so the run geometry is the sole exception.
+
+     These are LOGICAL longhands, so "inline-end" is correct by construction: it
+     mirrors on its own under dir="rtl" and nothing has to branch on side. */
+  .bubble {
+    border-start-start-radius: var(--radius-xl);
+    border-start-end-radius:   var(--radius-xl);
+    border-end-start-radius:   var(--radius-xl);
+    border-end-end-radius:     var(--radius-xl);
+    transition: border-radius var(--duration-exit) var(--ease-messenger-out);
+  }
+
+  .enter { animation: msg-in var(--duration-enter) var(--ease-messenger-in) both; }
+  @keyframes msg-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.985); }
+    to   { opacity: 1; transform: none; }
+  }
+  .card-in { animation: card-in var(--duration-enter) var(--ease-messenger-in) both; }
+  @keyframes card-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.99); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  .swatch { transition: background-color var(--duration-enter) var(--ease-messenger-in); }
+}
+
+/* ── diagnostic chrome. Obviously not part of the design being evaluated. ───── */
+#proto-bar, #proto-inspect, #proto-cases { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body class="min-h-dvh bg-wash antialiased">
+<main class="mx-auto max-w-3xl px-5 py-12">
+  <div class="mb-1 text-[11px] font-bold uppercase tracking-widest text-ink-faint">throwaway</div>
+  <h1 class="mb-2 text-[28px] font-bold tracking-tight">Messenger shell prototypes</h1>
+  <p class="mb-8 max-w-prose text-[15px] leading-relaxed text-ink-muted">
+    Five throwaway files. They exist to answer a question and to be deleted, not to
+    become a component library. None of this ships. Where a prototype settled a
+    question, the answer went into an ADR in <code class="text-[13px]">docs/adr/</code> —
+    the prototype is the evidence, the ADR is the decision.
+  </p>
+
+  <ul class="space-y-3">
+    <li>
+      <a href="messenger-shell/desktop.html" class="block rounded-lg bg-card p-4 ring-1 ring-hairline transition-shadow hover:shadow-md">
+        <div class="flex items-baseline justify-between gap-4">
+          <span class="text-[16px] font-semibold">desktop.html</span>
+          <span class="shrink-0 text-[11px] text-ink-faint">view at 1440+</span>
+        </div>
+        <p class="mt-1 text-[13px] leading-snug text-ink-muted">
+          <b>Start here.</b> The four-column layout — icon rail, chats, transcript,
+          details — and the collapse behaviour. The current reference for desktop.
+          Try <code>?variant=A</code> … <code>?variant=D</code> to compare all four.
+        </p>
+      </a>
+    </li>
+    <li>
+      <a href="messenger-shell/chat-view.html" class="block rounded-lg bg-card p-4 ring-1 ring-hairline transition-shadow hover:shadow-md">
+        <div class="flex items-baseline justify-between gap-4">
+          <span class="text-[16px] font-semibold">chat-view.html</span>
+          <span class="shrink-0 text-[11px] text-ink-faint">view at 375–480</span>
+        </div>
+        <p class="mt-1 text-[13px] leading-snug text-ink-muted">
+          Bubbles, corner sets, timestamps, receipt ticks, the day divider. Where the
+          17.9998px radius was measured rather than assumed.
+        </p>
+      </a>
+    </li>
+    <li>
+      <a href="messenger-shell/composer.html" class="block rounded-lg bg-card p-4 ring-1 ring-hairline transition-shadow hover:shadow-md">
+        <div class="flex items-baseline justify-between gap-4">
+          <span class="text-[16px] font-semibold">composer.html</span>
+          <span class="shrink-0 text-[11px] text-ink-faint">view at 375–480</span>
+        </div>
+        <p class="mt-1 text-[13px] leading-snug text-ink-muted">
+          Entry, IME handling, Enter-vs-Shift+Enter, the attachment tray. Caught a real
+          bug: keydown matched <code>Enter</code> without checking <code>shiftKey</code>.
+        </p>
+      </a>
+    </li>
+    <li>
+      <a href="messenger-shell/settings.html" class="block rounded-lg bg-card p-4 ring-1 ring-hairline transition-shadow hover:shadow-md">
+        <div class="flex items-baseline justify-between gap-4">
+          <span class="text-[16px] font-semibold">settings.html</span>
+          <span class="shrink-0 text-[11px] text-ink-faint">view at 375–480</span>
+        </div>
+        <p class="mt-1 text-[13px] leading-snug text-ink-muted">
+          The account / membership / device settings scopes — the thing ADR 0022
+          settled, shown rather than described.
+        </p>
+      </a>
+    </li>
+    <li>
+      <a href="messenger-shell/index.html" class="block rounded-lg bg-card p-4 ring-1 ring-hairline transition-shadow hover:shadow-md">
+        <div class="flex items-baseline justify-between gap-4">
+          <span class="text-[16px] font-semibold">index.html</span>
+          <span class="shrink-0 text-[11px] text-ink-faint">any width</span>
+        </div>
+        <p class="mt-1 text-[13px] leading-snug text-ink-muted">
+          The token block itself, annotated. <b>This is the source of the
+          <code>@theme</code> every other prototype copies</b>, so it is the file to
+          copy from if a token ever changes.
+        </p>
+      </a>
+    </li>
+  </ul>
+
+  <div class="mt-8 rounded-lg bg-card p-4 text-[12px] leading-relaxed text-ink-muted ring-1 ring-hairline">
+    <b class="text-ink">Before editing a token:</b> run <code>bun run check:tokens</code>.
+    If it passes and you still changed one, you have silently diverged from ADR 0002.
+  </div>
+</main>
+</body>
+</html>

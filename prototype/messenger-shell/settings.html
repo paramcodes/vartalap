@@ -1,0 +1,416 @@
+<!doctype html>
+<!--
+  PROTOTYPE — THROWAWAY. Not vartalap. Do not promote this file.
+
+  Wayfinder ticket "Profile and settings spec" (#17). The whole thesis of ADRs 0021 and
+  0022 is a distinction prose cannot carry:
+
+    · what is SHOWN versus what is EDITED
+    · where each setting LIVES — device-local, account-scoped, or on the membership
+
+  and one rule that is easy to write down and easy to get wrong:
+
+    · never render a disabled switch, render a sentence
+
+  Variants via ?variant=A|B|C.
+
+  The token block is ADR 0002 verbatim. Do not change a value here without changing
+  the ADR.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE — profile and settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style type="text/tailwindcss">
+@theme {
+  /* ── scale anchor ────────────────────────────────────────────────────────────
+     One number moves forty components. shadcn's scale is --radius * multipliers;
+     --radius-xl lands on Messenger's exact 18px bubble without any component knowing
+     the value 18. Do not round this to 12.86 — 12.857 * 1.4 = 17.9998. */
+  --radius: 12.857px;
+  --radius-xl: calc(var(--radius) * 1.4);   /* 17.9998px  ==  Messenger's bubble */
+  --radius-lg: calc(var(--radius) * 0.622); /*   7.9971px  ==  Messenger's card   */
+  --radius-2xl: calc(var(--radius) * 2);    /*  25.714px   ==  the composer        */
+
+  /* NOTE: there is deliberately NO --radius-sm. A theme variable that no used
+     class references is tree-shaken out of the compiled CSS by Tailwind v4's build
+     and simply stops existing — a token declared but never rendered is a token
+     that is gone. Anything that looks like a token but is currently used only in
+     one hand-written inline style belongs here as a literal until it earns a class. */
+
+  /* ── brand: ONE value, byte-identical in both themes ─────────────────────────
+     Meta sets the outgoing bubble to the brand accent in light and dark alike.
+     This single fact is most of why dark-mode Messenger looks like Messenger. */
+  --color-accent: #0084FF;          /* classic Messenger blue */
+
+  /* ── surfaces ─────────────────────────────────────────────────────────────── */
+  --color-wash:        #F0F2F5;     /* --web-wash              */
+  --color-card:        #FFFFFF;     /* floating card           */
+  --color-elevated:    #FFFFFF;
+  /* Two names, one value: the neutral fill the settings surfaces and the composer's
+     own well are the same colour, and the prototypes that need them each named it
+     locally before the block was ever synced. Collapse them when a real token name
+     is settled. */
+  --color-surface:        #F0F0F0;
+  --color-surface-composer: #F0F0F0;
+
+  /* ── bubbles ──────────────────────────────────────────────────────────────── */
+  --color-bubble-in:   #F0F0F0;
+  --color-bubble-out:  var(--color-accent);   /* literally var(--accent), per Meta */
+
+  /* ── ink ──────────────────────────────────────────────────────────────────── */
+  --color-ink:           #050505;
+  --color-ink-muted:     #65676B;
+  --color-ink-faint:     #8A8D91;
+  --color-ink-on-accent: #FFFFFF;
+
+  /* ── lines and states ─────────────────────────────────────────────────────── */
+  --color-hairline: rgba(0, 0, 0, 0.06);
+  --color-selected:  #EBF5FF;       /* --hosted-view-selected-state */
+  --color-press:     rgba(0, 0, 0, 0.04);
+
+  /* ── status ───────────────────────────────────────────────────────────────── */
+  --color-danger: #D93025;
+  --color-warn:   #B26B00;
+
+  /* ── focus ──────────────────────────────────────────────────────────────────
+     shadcn's default is focus-visible:ring-ring/50, which measures ~2.4:1 on white
+     — under the 3:1 non-text minimum of WCAG 1.4.11. Opaque in both themes. */
+  --color-focus: #0866FF;
+
+  /* ── UNVERIFIED ─────────────────────────────────────────────────────────────
+     #31A73B is Meta's canonical green. No --presence-* token has been found in any
+     capture, so this value is inferred, not observed. Compare against messenger.com. */
+  --color-presence: #31A73B;
+
+  /* ── motion ─────────────────────────────────────────────────────────────────
+     Enter slower than exit. 280 in / 200 out. */
+  --ease-messenger-in:  cubic-bezier(0.14, 1, 0.34, 1);
+  --ease-messenger-out: cubic-bezier(0.45, 0.1, 0.2, 1);
+  --duration-enter: 280ms;
+  --duration-exit:  200ms;
+}
+
+/* Dark is its own token set, not an inversion. Note what does NOT change: accent,
+   bubble-out, and therefore the outgoing bubble colour. */
+.dark {
+  --color-wash:      #18191A;
+  --color-card:      #242526;
+  --color-elevated:  #3A3B3C;
+  --color-surface:        #2F2F2F;
+  --color-surface-composer: #2F2F2F;
+  --color-bubble-in: #303030;
+  --color-ink:       #E9E9E9;
+  --color-ink-muted: #B0B3B8;
+  --color-ink-faint: #8A8D91;
+  --color-hairline:  rgba(255, 255, 255, 0.08);
+  --color-selected:  #303030;
+  --color-press:     rgba(255, 255, 255, 0.06);
+  --color-danger:    #F28B82;
+  --color-warn:      #E0A33E;
+  --color-focus:     #66A3FF;
+}
+@layer base {
+  html { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  body { background: var(--color-wash); color: var(--color-ink); }
+  :where(button, input, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 6px;
+  }
+}
+#chrome, #notes, .home-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body class="min-h-dvh antialiased">
+
+<div id="chrome" class="sticky top-0 z-50 flex flex-wrap items-center gap-2 border-b border-hairline bg-card px-3 py-2 text-[11px]">
+  <span class="rounded bg-press px-1.5 py-0.5 font-semibold">PROTOTYPE</span>
+  <span id="variant-name" class="text-ink-muted"></span>
+  <span class="flex-1"></span>
+  <button data-act="theme" class="rounded border border-hairline px-2 py-1 hover:bg-press">theme: <b id="lbl-theme">light</b></button>
+  <button data-act="notes" class="rounded border border-hairline px-2 py-1 hover:bg-press">ADR notes</button>
+</div>
+
+<main id="stage" class="mx-auto max-w-lg p-4 sm:p-8"></main>
+
+<section id="notes" hidden class="mx-auto mb-24 max-w-lg rounded-lg border border-hairline bg-card p-4 text-[11px] leading-relaxed">
+  <h2 class="mb-2 text-sm font-semibold">ADR behind each choice</h2>
+  <ul class="list-disc space-y-1 pl-4 text-ink-muted">
+    <li><b>The handle is shown, not edited</b> — read-only TEXT, not a disabled input. A greyed control reads as a promise the build has not kept yet; text does not. The handle is claimed once and never changes, because the auth library has no history table and a released handle silently re-points to a stranger.</li>
+    <li><b>The display casing IS editable.</b> One name, two controls, different lifetimes. That contrast is the point of variant A.</li>
+    <li><b>Three homes, one rule</b> — needed before first paint → <b>device-local</b>; needs server authority → <b>account-scoped</b>; scoped to a relationship → <b>lives on the membership</b>. Theme fails the first test, which is why it is local.</li>
+    <li><b>Disclosure changes broadcast over the socket; every privacy change is a POST only the author sees.</b> Renaming yourself updates every conversation you are in, immediately.</li>
+    <li><b>Never render a disabled switch, render a sentence.</b> A disabled switch is a promise the build has not kept. Variant C puts a sentence beside a real one so the difference is visible.</li>
+    <li><b>Read-receipt sharing is per-conversation, and the copy does not claim invisibility.</b> Turning the marker off hides <i>when</i> you read, not <i>how fast</i>. Saying otherwise would be a lie.</li>
+    <li><b>No bio.</b> A moderation surface, not a column cost. Its absence should read as deliberate, so it is named rather than simply missing.</li>
+    <li><b>The avatar goes through the same pipeline as an attachment</b> — a derived variant only. The raw upload is never served.</li>
+  </ul>
+</section>
+
+<div class="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2">
+  <div class="flex items-center gap-1 rounded-full bg-neutral-900 p-1 text-white shadow-2xl ring-1 ring-white/10">
+    <button data-cycle="-1" aria-label="Previous variant" class="grid h-9 w-9 place-items-center rounded-full text-lg leading-none hover:bg-white/15">‹</button>
+    <span id="switch-label" class="min-w-[16rem] px-2 text-center text-xs font-medium tracking-wide"></span>
+    <button data-cycle="1" aria-label="Next variant" class="grid h-9 w-9 place-items-center rounded-full text-lg leading-none hover:bg-white/15">›</button>
+  </div>
+</div>
+
+<script>
+const VARIANTS = {
+  A: { name: 'Shown vs edited',  note: 'the handle is text, the casing is a field' },
+  B: { name: 'The three homes',   note: 'device-local · account · membership' },
+  C: { name: 'Absent switches',   note: 'never a disabled switch — a sentence' },
+};
+
+const state = {
+  variant: (new URLSearchParams(location.search).get('variant') || 'A').toUpperCase(),
+  theme: 'light',
+  avatar: 'ready',
+};
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ── atoms ─────────────────────────────────────────────────────────────────── */
+
+function Switch(on, label, id) {
+  return `<button role="switch" aria-checked="${on}" ${id ? `id="${id}"` : ''}
+    class="relative h-6 w-10 shrink-0 rounded-full transition-colors duration-200"
+    style="transition-timing-function: cubic-bezier(0.45,0.1,0.2,1);background:${on ? 'var(--color-accent)' : 'var(--color-hairline)'}">
+    <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-[left] duration-200"
+      style="transition-timing-function: cubic-bezier(0.45,0.1,0.2,1);left:${on ? '18px' : '2px'}"></span>
+    <span class="sr-only">${esc(label)}</span>
+  </button>`;
+}
+
+/** The rule, rendered. Never a greyed control — a sentence that says why. */
+function Absent(what, why) {
+  return `<div class="flex items-start justify-between gap-4 py-3">
+    <div class="min-w-0">
+      <div class="text-[15px] leading-tight">${esc(what)}</div>
+      <div class="mt-0.5 text-[12px] leading-snug text-ink-muted">${esc(why)}</div>
+    </div>
+    <span class="mt-0.5 shrink-0 rounded-full bg-press px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-faint">not available</span>
+  </div>`;
+}
+
+function Row(label, hint, control) {
+  return `<div class="flex items-center justify-between gap-4 py-3">
+    <div class="min-w-0">
+      <div class="text-[15px] leading-tight">${esc(label)}</div>
+      ${hint ? `<div class="mt-0.5 text-[12px] leading-snug text-ink-muted">${hint}</div>` : ''}
+    </div>
+    <div class="shrink-0">${control}</div>
+  </div>`;
+}
+
+const Section = (title, body) =>
+  `<section class="mb-4 overflow-hidden rounded-lg bg-card ring-1 ring-hairline">
+     <h2 class="px-4 pb-1 pt-3 text-[13px] font-semibold text-ink-muted">${esc(title)}</h2>
+     <div class="px-4 pb-1 divide-y divide-[color:var(--color-hairline)]">${body}</div>
+   </section>`;
+
+/** variant B only: where a setting lives, and why */
+const Home = (where, why) =>
+  `<div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+     <span class="home-tag rounded px-1.5 py-0.5 font-medium"
+       style="background:${where === 'device-local' ? 'var(--color-surface)' : where === 'account' ? 'color-mix(in srgb, var(--color-accent) 12%, transparent)' : 'color-mix(in srgb, #31A73B 16%, transparent)'};
+              color:${where === 'device-local' ? 'var(--color-ink-muted)' : where === 'account' ? 'var(--color-accent)' : '#1E7A2E'}">${esc(where)}</span>
+     <span class="text-ink-faint">${esc(why)}</span>
+   </div>`;
+
+/* ── avatar: the same pipeline as an attachment ───────────────────────────── */
+function Avatar() {
+  const inner = {
+    ready: `<div class="grid h-full w-full place-items-center rounded-full text-[28px] font-semibold text-white" style="background:hsl(210 46% 46%)">Y</div>`,
+    uploading: `<div class="grid h-full w-full place-items-center rounded-full bg-surface text-ink-faint"><span class="h-5 w-5 animate-spin rounded-full border-2 border-hairline border-t-accent"></span></div>`,
+    failed: `<div class="grid h-full w-full place-items-center rounded-full" style="background:color-mix(in srgb, var(--color-danger) 14%, transparent);color:var(--color-danger)"><svg width="22" height="22" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7.2" stroke="currentColor" stroke-width="1.3"/><path d="M10 6v5M10 13.6v.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></div>`,
+  }[state.avatar];
+  return `<div class="flex items-center gap-4">
+    <div class="relative">
+      <div class="h-20 w-20 overflow-hidden rounded-full ring-1 ring-hairline">${inner}</div>
+      <button class="absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full bg-accent text-white shadow" title="Change photo" aria-label="Change photo">
+        <svg width="14" height="14" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M13.5 7.5l-5.2 5.2a2.6 2.6 0 01-3.7-3.7l5.6-5.6a1.8 1.8 0 012.5 2.5l-5.5 5.6a.9.9 0 01-1.3-1.3l4.9-4.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="text-[12px] text-ink-muted">
+      ${state.avatar === 'failed' ? 'Not an allowlisted image type — the server checks the bytes, not the filename.' :
+        state.avatar === 'uploading' ? 'Uploading. The original is never served; only a derived version is.' :
+        'A derived variant, from the same pipeline as message attachments.'}
+      <div class="mt-1 flex gap-1.5">
+        ${['ready','uploading','failed'].map(s =>
+          `<button data-avatar="${s}" class="rounded border border-hairline px-1.5 py-0.5 text-[10px] ${state.avatar===s?'bg-press font-semibold':'text-ink-muted hover:bg-press'}">${s}</button>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── read-receipt sharing, per conversation ───────────────────────────────── */
+const CONVS = [
+  { name: 'Priya', on: true },
+  { name: 'Platform', on: false },
+  { name: 'Sam', on: true },
+];
+
+function Sharing() {
+  return `<div class="divide-y divide-[color:var(--color-hairline)]">
+    ${CONVS.map((c,i) => `<div class="flex items-center justify-between gap-4 py-3">
+      <div class="min-w-0">
+        <div class="text-[15px] leading-tight">${esc(c.name)}</div>
+        <div class="mt-0.5 text-[12px] leading-snug text-ink-muted">${c.on
+          ? 'Reads as you read. They see “Seen” under your last message.'
+          : 'You read normally; no marker is shown to them.'}</div>
+      </div>
+      ${Switch(c.on, 'Share read receipts with ' + c.name, 'share-' + i)}
+    </div>`).join('')}
+    <p class="py-3 text-[12px] leading-snug text-ink-faint">
+      Turning this off hides <b>when</b> you read. It does not hide <b>how fast</b> you read — messages
+      still arrive in order. Anyone promising otherwise would be lying to you.
+    </p>
+  </div>`;
+}
+
+/* ── variants ─────────────────────────────────────────────────────────────── */
+
+function VariantA() {
+  return `
+  ${Section('Your profile', `<div class="py-4">${Avatar()}</div>
+    <div class="py-3">
+      <div class="text-[15px] leading-tight">Handle</div>
+      <!-- READ-ONLY TEXT. A disabled input would read as a promise the build has not kept. -->
+      <div class="mt-1 flex items-center gap-2">
+        <code class="rounded bg-surface px-2 py-1 text-[15px]">@param_</code>
+        <span class="text-[12px] text-ink-faint">Set once. It cannot be changed, because a released handle silently re-points to a stranger.</span>
+      </div>
+    </div>
+    <div class="py-3">
+      <div class="text-[15px] leading-tight">Display name</div>
+      <div class="mt-1 flex items-center gap-2">
+        <!-- The SAME NAME, but a field: this one you can change. -->
+        <input value="Param" class="w-40 rounded-lg bg-surface px-3 py-1.5 text-[15px] outline-none" aria-label="Display name">
+        <span class="text-[12px] text-ink-faint">Free to change, and not unique. Direct conversations derive their title from it, so renaming updates every chat at once.</span>
+      </div>
+    </div>
+    <div class="py-3">
+      <div class="text-[15px] leading-tight">About</div>
+      <p class="mt-1 text-[12px] leading-snug text-ink-muted">There is no bio, deliberately. A free-text field is a moderation surface before it is a feature — and we have no moderation queue yet.</p>
+    </div>`)}
+
+  ${Section('Conversation', Sharing())}
+
+  ${Section('Appearance', Row('Dark mode', 'Follows this device only — no other device sees it.', Switch(state.theme === 'dark', 'Dark mode', 'theme-switch')))}`;
+}
+
+function VariantB() {
+  const R = (label, hint, home, why, control) =>
+    `<div class="py-3">
+      <div class="flex items-center justify-between gap-4">
+        <div class="text-[15px] leading-tight">${esc(label)}</div>
+        <div class="shrink-0">${control}</div>
+      </div>
+      ${hint ? `<div class="text-[12px] leading-snug text-ink-muted">${hint}</div>` : ''}
+      ${Home(home, why)}
+    </div>`;
+
+  return `
+  <div class="mb-4 rounded-lg bg-card p-4 text-[13px] ring-1 ring-hairline">
+    <div class="mb-1 font-semibold">One rule decides where a setting lives.</div>
+    <div class="text-ink-muted">Ask what would break if it were wrong, and who could possibly disagree. If it must be right before the first paint, it is <b>device-local</b>. If the server has to be the authority, it is <b>account-scoped</b>. If it is about a relationship rather than a person, it <b>lives on the membership</b> — because that is where it expires.</div>
+  </div>
+
+  ${Section('device-local', [
+    R('Theme', 'Needed before the first paint, or the page flashes.', 'device-local', 'another device may prefer light', Switch(state.theme === 'dark', 'Theme', 't2')),
+    R('Send with Enter', 'A muscle-memory habit, and it differs per keyboard.', 'device-local', 'no other device is wrong', Switch(true, 'Send with Enter', 't3')),
+  ].join(''))}
+
+  ${Section('account-scoped', [
+    R('Display name', 'Needs server authority: every other member sees it.', 'account', 'renaming broadcasts to your conversations', `<input value="Param" class="w-32 rounded-lg bg-surface px-3 py-1.5 text-[15px] outline-none" aria-label="Display name">`),
+    R('Read receipts', 'A statement about you, and the whole conversation reads it.', 'account', 'the other members are affected too', Switch(true, 'Read receipts', 't5')),
+  ].join(''))}
+
+  ${Section('on the membership', `
+    <div class="py-3">
+      <div class="mb-2 text-[13px] text-ink-muted">Muted conversations</div>
+      ${CONVS.slice(0, 2).map((c, i) => `<div class="flex items-center justify-between gap-4 py-2">
+        <div class="text-[15px] leading-tight">${esc(c.name)}</div>
+        ${Switch(i === 0, 'Mute ' + c.name, 'm-' + i)}
+      </div>`).join('')}
+      ${Home('membership', 'it expires when they leave — which an account-scoped flag could not')}
+      <p class="mt-2 text-[12px] leading-snug text-ink-faint">A mute is a marker beside the unread badge, never merged with it. A mark you cannot interpret is worse than two marks you can.</p>
+    </div>`)}`;
+}
+
+function VariantC() {
+  return `
+  ${Section('Availability — the real ones', [
+    Row('Show active status', 'Your connection state, read as a dot. Live, and unstored.', Switch(true, 'Show active status', 'a1')),
+    Row('Send read receipts', 'Whether others see that you have read.', Switch(true, 'Send read receipts', 'a2')),
+  ].join(''))}
+
+  ${Section('Availability — deliberately absent', `
+    <p class="py-2.5 text-[12px] leading-snug text-ink-muted">Each of these could have been a switch. Each is a sentence instead, because a greyed switch is a promise the build has not kept.</p>
+    ${Absent('Last seen', 'We can only tell you someone is connected within the last 45 seconds, not when they left. A timestamp would be a guess dressed as a fact.')}
+    ${Absent('Hide active status', 'Turning this off would mean hiding a real signal from everyone, so that one person could opt out. The signal is not ours to withhold on your behalf.')}
+    ${Absent('Profile visibility', 'A handle addresses you. Letting a stranger hide from you would only be reciprocal if it hid you from them too — which is not how finding someone works.')}
+    <div class="py-3">
+      <div class="text-[12px] leading-snug text-ink-faint">Compare with a real switch above. The difference is the whole argument.</div>
+    </div>`)}
+
+  ${Section('Session', Row('Sign out everywhere else', 'Takes a password if you have not used it in the last five minutes.', `<button class="rounded-lg bg-press px-3 py-1.5 text-[13px] font-medium">Sign out</button>`))}`;
+}
+
+const RENDER = { A: VariantA, B: VariantB, C: VariantC };
+
+function render() {
+  document.getElementById('stage').innerHTML = RENDER[state.variant]();
+  document.getElementById('variant-name').textContent = `${VARIANTS[state.variant].name} — ${VARIANTS[state.variant].note}`;
+  document.getElementById('switch-label').textContent = `${state.variant} (${VARIANTS[state.variant].name})`;
+}
+
+document.addEventListener('click', (e) => {
+  const av = e.target.closest('[data-avatar]');
+  if (av) { state.avatar = av.dataset.avatar; return render(); }
+
+  const c = e.target.closest('[data-cycle]');
+  if (c) {
+    const keys = Object.keys(VARIANTS), i = keys.indexOf(state.variant);
+    return setVariant(keys[(i + Number(c.dataset.cycle) + keys.length) % keys.length]);
+  }
+  const a = e.target.closest('[data-act]');
+  if (a) {
+    if (a.dataset.act === 'theme') { state.theme = state.theme === 'light' ? 'dark' : 'light';
+      document.documentElement.classList.toggle('dark', state.theme === 'dark');
+      document.getElementById('lbl-theme').textContent = state.theme; return render(); }
+    if (a.dataset.act === 'notes') { const n = document.getElementById('notes'); n.hidden = !n.hidden; return; }
+  }
+  const sw = e.target.closest('[role="switch"]');
+  if (sw) {
+    const on = sw.getAttribute('aria-checked') === 'true';
+    sw.setAttribute('aria-checked', String(!on));
+    sw.style.background = !on ? 'var(--color-accent)' : 'var(--color-hairline)';
+    sw.querySelector('span').style.left = !on ? '18px' : '2px';
+  }
+});
+
+function setVariant(next) {
+  state.variant = next;
+  const u = new URL(location.href); u.searchParams.set('variant', next);
+  history.replaceState(null, '', u);
+  render();
+}
+
+document.addEventListener('keydown', (e) => {
+  const typing = ['INPUT','TEXTAREA'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  const keys = Object.keys(VARIANTS), i = keys.indexOf(state.variant);
+  if (e.key === 'ArrowRight') { e.preventDefault(); setVariant(keys[(i + 1) % keys.length]); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); setVariant(keys[(i - 1 + keys.length) % keys.length]); }
+});
+
+render();
+</script>
+</body>
+</html>

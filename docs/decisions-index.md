@@ -17,6 +17,7 @@ drift.
 | **Monorepo** | Bun workspaces; Node for `apps/web`, Bun for `apps/realtime` |
 | **Client cache** | Dexie owns message state. TanStack Query for server-authoritative reads only |
 | **Design system** | shadcn/ui on Base UI, hand-written Messenger token theme, Inter, classic blue `#0084FF` |
+| **Desktop layout** | Four columns — rail · list · transcript · details — [ADR 0055](adr/0055-desktop-layout-is-four-columns.md). Every number in it is ours |
 | **Build order** | Spine before surface — see [roadmap](concepts/roadmap.md) |
 | **Hardening** | 27 items, two gates; Gate 1 ≈ 10–11 days, four of them one restore rehearsal |
 | **Storage** | Cloudflare R2 — chosen for free **egress**, not price |
@@ -59,6 +60,7 @@ drift.
 | [0052-media-is-staged-before-the-message-exists](adr/0052-media-is-staged-before-the-message-exists.md) | A media message is staged before it exists, and send never waits |
 | [0053-nothing-is-retracted](adr/0053-nothing-is-retracted.md) | Nothing is retracted: a queued send can be waited for or discarded, never changed |
 | [0054-build-the-spine-first](adr/0054-build-the-spine-first.md) | Build the durable spine before any surface |
+| [0055-desktop-layout-is-four-columns](adr/0055-desktop-layout-is-four-columns.md) | Desktop is four columns, and collapsing a pane is a decision rather than a media query |
 
 | Concept | Teaches |
 |---|---|
@@ -100,6 +102,8 @@ These are the expensive ones. Each cost a wrong first implementation.
 9. **Neon Free has no scheduled backups** — 6h PITR only. And **no dollar spend cap**, only per-project
    resource quotas that hard-stop.
 10. **Run indices index the divider-filtered list.** Run-position lookups must use full-transcript indices.
+11. **Three shadcn `SidebarProvider`s means three `Cmd+B` handlers and three mobile Sheets.** Only the conversation list is a Sidebar; the rail and the details pane are flex columns. See [ADR 0055](adr/0055-desktop-layout-is-four-columns.md).
+12. **`bun run check:tokens` exists because the Tailwind browser build cannot `@import` an `@theme`.** The token block must be inlined in each prototype, so it is duplicated five times and the script is the only thing keeping the copies identical. A prototype that quietly disagrees about a token renders wrong with no error anywhere.
 
 ## Vocabulary rules
 
@@ -122,3 +126,5 @@ Do not let these harden into fact without a check.
 - **Messenger's group "Seen"** — recorded as *all members* on the operator's account. No primary source exists.
 - **"Orders of magnitude" traffic claims for typing and receipts** — retracted. No primary source publishes any ratio.
 - **Short-prefix FTS degradation** — real mechanic, zero documentation. Engineering judgment, not cited.
+- **Every layout number in ADR 0055** — rail 64, list 320, details 300, transcript cap 760, breakpoints 760 and 1150. None was recovered from a source; Facebook serves messenger.com through Comet behind a login and every archived capture is the logged-out shell. They are defaults to be judged by eye.
+- **Whether messenger.com currently has a details pane** — contradicted twice in one session. Meta's screen-reader landmark spec says three regions and no right pane; the operator's screenshot of the old desktop app shows four. Both are real evidence of different things, and neither describes what ships today.
