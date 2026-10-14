@@ -1,0 +1,13 @@
+node_modules
+.env
+.env.local
+dist
+.turbo
+*.log
+
+# Neon branches and drizzle output are local state, not source.
+packages/database/drizzle/meta/_journal.json.bak
+
+# OS noise
+.DS_Store
+Thumbs.db

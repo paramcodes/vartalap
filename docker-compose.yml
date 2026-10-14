@@ -1,0 +1,33 @@
+# Local Postgres for development.
+#
+# The production target is Neon (serverless). This exists because migrations must be
+# run somewhere before they are run anywhere, and because a serverless Postgres you
+# cannot restart is a bad place to learn.
+#
+#   docker compose up -d
+#   bun run db:migrate
+#
+# CREATE EXTENSION in the migration needs superuser, which `postgres` has. A managed
+# instance may not — there, extensions come from the provider's allowlist.
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: vartalap-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vartalap
+      POSTGRES_PASSWORD: vartalap
+      POSTGRES_DB: vartalap
+    ports:
+      # 5433 locally so it cannot collide with a system Postgres on 5432.
+      - "5433:5432"
+    volumes:
+      - vartalap-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vartalap -d vartalap"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  vartalap-pgdata:

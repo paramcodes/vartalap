@@ -1,0 +1,23 @@
+{
+  "name": "vartalap",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "bun run --filter='*' typecheck",
+    "db:generate": "bun run --filter=@vartalap/database generate",
+    "db:migrate": "bun run --filter=@vartalap/database migrate",
+    "db:push": "bun run --filter=@vartalap/database push",
+    "db:studio": "bun run --filter=@vartalap/database studio"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "bun": ">=1.4.0"
+  }
+}
