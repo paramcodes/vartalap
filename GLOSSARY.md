@@ -67,7 +67,7 @@ _Avoid_: Attachment, file, blob
 ## Reading
 
 **Receipt**:
-A member's record of how far they have read a conversation. It is a statement about the member and never about the message — a message is not "read" or "unread" on its own — and it advances to the end of the transcript the moment the conversation is shown to them.
+A member's record of how far they have read a conversation. It is a statement about the member and never about the message — a message is not "read" or "unread" on its own — and it advances to the end of the transcript the moment the conversation is shown to them. A member always has one; whether the other members can observe it is the member's to decide.
 _Avoid_: Read marker, seen-by, message status, last-read
 
 **Read**:
