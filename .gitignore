@@ -11,3 +11,5 @@ packages/database/drizzle/meta/_journal.json.bak
 # OS noise
 .DS_Store
 Thumbs.db
+# local PGlite data dir (bun run db:local)
+.db
