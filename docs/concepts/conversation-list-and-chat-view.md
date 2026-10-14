@@ -468,6 +468,16 @@ Chinese and Korean member loses the character they just composed, and it is the 
 this class of application. `isComposing` is the UI Events property
 (`dom-keyboardevent-iscomposing`); the legacy `keyCode === 229` sniff is not a substitute.
 
+> **Corrected by [0051](../adr/0051-enter-to-send-needs-three-guards.md). The paragraph above is
+> wrong in the direction that costs the most.** `isComposing` alone does nothing on Safari: Safari
+> fires `compositionend` **before** the `keydown` that committed the composition, so the property is
+> already `false` when a send handler reads it. WebKit shipped the correct ordering in April 2026 and
+> **reverted it entirely in June** — *"We've been getting too many regression reports. Disabling
+> this behavior everywhere"* — and a bug filed 2026-09-16 establishes that macOS **Web Apps**, which
+> is what a PWA is, never get the corrected order at all. So both halves are inverted: `isComposing`
+> is not sufficient, and `keyCode === 229` is not a substitute for it but **the only thing Safari
+> honours**. The guard is three belts and it is specified in the composer document.
+
 Two guards around the send itself: **never send an empty body**, and **never send while a send for
 the same body is in flight** — otherwise a held Enter key sends an empty string the moment the
 composer clears.

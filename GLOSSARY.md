@@ -103,6 +103,10 @@ _Avoid_: Pending message, unsent message
 Text a member has composed and not yet sent. It belongs to the one browser that received it: it is not part of the conversation, no other member can know it exists, and not even the member's own second device can see it. Once sent it stops being a draft and becomes a queued send, which has different promises about durability.
 _Avoid_: Pending message, unsent message, queued send, saved message
 
+**Staged file**:
+A file a member has chosen and vartalap is holding, which no Message refers to yet. It becomes an Attachment only when a Message names it, and a Staged file that never does is discarded rather than sent. It is not a Draft, which is text alone.
+_Avoid_: Attachment (before a message exists), Upload (that is an event, not a thing), Pending attachment, Pending media
+
 **Idempotency key**:
 A value generated once for a queued send and unchanged across every retry of it, so the server recognises a repeat as the same message rather than a second one.
 _Avoid_: Client ID, request ID, dedupe key

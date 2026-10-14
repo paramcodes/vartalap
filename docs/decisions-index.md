@@ -17,33 +17,65 @@ drift.
 | **Monorepo** | Bun workspaces; Node for `apps/web`, Bun for `apps/realtime` |
 | **Client cache** | Dexie owns message state. TanStack Query for server-authoritative reads only |
 | **Design system** | shadcn/ui on Base UI, hand-written Messenger token theme, Inter, classic blue `#0084FF` |
+| **Build order** | Spine before surface — see [roadmap](concepts/roadmap.md) |
+| **Hardening** | 27 items, two gates; Gate 1 ≈ 10–11 days, four of them one restore rehearsal |
 | **Storage** | Cloudflare R2 — chosen for free **egress**, not price |
-| **Deployment** | Single operator, reachable on the internet (PWA + Web Push force HTTPS and a public origin) |
+| **Deployment** | Single operator. Origin public (PWA + Web Push force HTTPS + a public hostname); **door invite-only** — proposed, not decided ([H-19](concepts/hardening-backlog.md)) |
 
 ## Documents
 
 | ADR | Decision |
 |---|---|
-| [0001](adr/0001-self-hosted-better-auth.md) | Self-hosted Better Auth, not Neon Managed — `username()` 404s on Managed |
-| [0002](adr/0002-messenger-token-layer.md) | Token layer on plain `@theme`, `--radius: 12.857px` |
-| [0003](adr/0003-receipt-watermark.md) | Receipts are a bookmark, not a diary — a per-member watermark |
-| [0004](adr/0004-message-durability.md) | Persist before acknowledge; the durable spine |
-| [0005](adr/0005-message-ordering.md) | Global `seq`; per-conversation serialisation kills the inversion race |
-| [0006](adr/0006-presence.md) | Presence is a Redis TTL, not Centrifugo's built-in presence |
-| [0007](adr/0007-conversation-model.md) | One `conversations` table; a NULL doing the uniqueness work |
-| [0008](adr/0008-media-pipeline.md) | The raw upload is never served |
-| [0009](adr/0009-message-search.md) | Postgres FTS behind one exported function |
-| [0010](adr/0010-receipt-mechanics.md) | Two receipt positions, not one plus a boolean |
+| [0001-self-hosted-better-auth](adr/0001-self-hosted-better-auth.md) | Self-hosted Better Auth, not Neon Managed Better Auth |
+| [0002-messenger-token-layer](adr/0002-messenger-token-layer.md) | A `messenger` token block on plain `@theme`, with the radius anchored at 12.857px |
+| [0003-receipt-watermark](adr/0003-receipt-watermark.md) | Receipts are a bookmark, not a diary — a per-member watermark, not a log |
+| [0004-message-durability](adr/0004-message-durability.md) | Persist before acknowledge: the durable spine of the message lifecycle |
+| [0005-message-ordering](adr/0005-message-ordering.md) | A global `seq` orders messages, and per-conversation serialisation makes the commit-inversion r |
+| [0006-presence](adr/0006-presence.md) | Presence lives in a Redis TTL, not in Centrifugo's built-in presence |
+| [0007-conversation-model](adr/0007-conversation-model.md) | One `conversations` table, and a NULL that does the uniqueness work |
+| [0008-media-pipeline](adr/0008-media-pipeline.md) | Never serve the raw upload — sniff, allowlist, and serve only derived variants |
+| [0009-message-search](adr/0009-message-search.md) | Message search is Postgres full-text, behind one exported function |
+| [0010-receipt-mechanics](adr/0010-receipt-mechanics.md) | A receipt has two positions: the one you own, and the one everyone else sees |
+| [0011-push-notifications](adr/0011-push-notifications.md) | Push is our own sender, triggered by the outbox — never the transport's job |
+| [0016-identity-is-one-table](adr/0016-identity-is-one-table.md) | Identity is one table, a handle is claimed once, and a handle signs you in |
+| [0017-handle-alphabet](adr/0017-handle-alphabet.md) | The handle alphabet is `[a-z0-9_]`, and the uniqueness index pins its collation |
+| [0018-socket-is-a-lease](adr/0018-socket-is-a-lease.md) | A socket is a sixty-second lease, and revocation is a row delete plus a disconnect |
+| [0021-profile-surface](adr/0021-profile-surface.md) | The profile renders what cannot be edited, and says so |
+| [0022-settings-boundary-and-transports](adr/0022-settings-boundary-and-transports.md) | Three homes for a setting, two transports for a change, and three switches that must not exist |
+| [0023-handle-claim-and-reservation-SUPERSEDED](adr/0023-handle-claim-and-reservation-SUPERSEDED.md) | A handle is claimed through us, and every handle a user has held stays theirs |
+| [0024-settings-boundary-and-transports-RENUMBERED](adr/0024-settings-boundary-and-transports-RENUMBERED.md) | Three homes for a setting, two transports for a change, three switches that must not exist |
+| [0040-security-headers](adr/0040-security-headers.md) | The application emits its own security headers, and the CSP is the only one that matters |
+| [0041-erasure-is-a-tombstone](adr/0041-erasure-is-a-tombstone.md) | Erasure anonymises the user row to a tombstone and cascades nothing |
+| [0042-backups](adr/0042-backups.md) | The backup is ours — a nightly `pg_dump` into R2 — and it does not exist until a restore has be |
+| [0043-rate-limits](adr/0043-rate-limits.md) | Rate limits are a Redis token bucket keyed on identity, with the numbers written down |
+| [0044-cost-ceilings](adr/0044-cost-ceilings.md) | There is no dollar cap anywhere on this stack; the ceilings are five integers and two lifecycle |
+| [0045-conversation-list-orders-by-a-position](adr/0045-conversation-list-orders-by-a-position.md) | The conversation list orders by a position, and `0` is not a position |
+| [0046-mute-is-a-marker-not-a-filter](adr/0046-mute-is-a-marker-not-a-filter.md) | A muted conversation stays in the list, with its unread count intact |
+| [0047-transcript-follows-the-bottom-only-when-at-it](adr/0047-transcript-follows-the-bottom-only-when-at-it.md) | The transcript follows the bottom only for a member already at it |
+| [0048-scroll-anchoring-belongs-to-the-browser](adr/0048-scroll-anchoring-belongs-to-the-browser.md) | Scroll anchoring belongs to the browser, which is why v1 does not virtualize |
+| [0049-drafts-are-device-local](adr/0049-drafts-are-device-local.md) | A draft belongs to the browser that received it |
+| [0050-the-composer-is-chosen-here](adr/0050-the-composer-is-chosen-here.md) | The composer's shape and copy are chosen here, not inherited |
+| [0051-enter-to-send-needs-three-guards](adr/0051-enter-to-send-needs-three-guards.md) | Enter-to-send needs three guards, and `isComposing` is the weakest of them |
+| [0052-media-is-staged-before-the-message-exists](adr/0052-media-is-staged-before-the-message-exists.md) | A media message is staged before it exists, and send never waits |
+| [0053-nothing-is-retracted](adr/0053-nothing-is-retracted.md) | Nothing is retracted: a queued send can be waited for or discarded, never changed |
+| [0054-build-the-spine-first](adr/0054-build-the-spine-first.md) | Build the durable spine before any surface |
 
 | Concept | Teaches |
 |---|---|
-| [message-lifecycle](concepts/message-lifecycle.md) | One message, keystroke to receipt |
-| [message-ordering](concepts/message-ordering.md) | What orders a transcript, and the race that doesn't exist |
-| [presence-and-typing](concepts/presence-and-typing.md) | Two signals that look like one |
-| [conversation-model](concepts/conversation-model.md) | One table, one NULL, one predicate |
-| [media-pipeline](concepts/media-pipeline.md) | Where media trust begins |
-| [message-search](concepts/message-search.md) | What backs search and what it's bad at |
-| [message-receipts](concepts/message-receipts.md) | Reading, delivered, and the two columns |
+| [auth-and-identity](concepts/auth-and-identity.md) | Auth, onboarding and identity |
+| [composer-and-sending](concepts/composer-and-sending.md) | The composer, and what sending actually does |
+| [conversation-list-and-chat-view](concepts/conversation-list-and-chat-view.md) | The conversation list and the chat view |
+| [conversation-model](concepts/conversation-model.md) | The conversation model |
+| [hardening-backlog](concepts/hardening-backlog.md) | The hardening backlog |
+| [media-pipeline](concepts/media-pipeline.md) | The media pipeline |
+| [message-lifecycle](concepts/message-lifecycle.md) | The message lifecycle |
+| [message-ordering](concepts/message-ordering.md) | Message ordering and pagination |
+| [message-receipts](concepts/message-receipts.md) | Reading, delivered, and receipts |
+| [message-search](concepts/message-search.md) | Message search |
+| [presence-and-typing](concepts/presence-and-typing.md) | Presence and typing |
+| [profile-and-settings](concepts/profile-and-settings.md) | Profile and settings |
+| [push-notifications](concepts/push-notifications.md) | Push notifications |
+| [roadmap](concepts/roadmap.md) | The roadmap |
 
 ## Traps that will bite whoever builds this
 
