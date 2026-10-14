@@ -1,0 +1,23 @@
+{
+  "name": "@vartalap/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/auth.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "check-schema": "bunx auth check schema --config ./src/auth.ts",
+    "smoke": "bun run smoke.ts"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.7.7",
+    "@vartalap/database": "workspace:*",
+    "better-auth": "^1.7.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}

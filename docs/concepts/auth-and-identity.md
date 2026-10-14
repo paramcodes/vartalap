@@ -14,6 +14,62 @@ Decisions are in [0016](../adr/0016-identity-is-one-table.md),
 
 ---
 
+## Verified against Better Auth 1.7.7
+
+The prose below was written before the library was installed and is correct about
+intent. These are the points where the actual library disagreed, established by reading
+the published package source rather than the docs — better-auth.com serves `latest`
+unversioned, and two places below are already stale in it.
+
+**The docs are wrong twice.** The Drizzle adapter has moved out of core into
+`@better-auth/drizzle-adapter` on its own version train; `better-auth/adapters/drizzle`
+still re-exports it, so older guides work and the dependency is nonetheless named
+separately. And the CLI writes `auth-schema.ts`, not `schema.ts`, which the CLI page
+states outright.
+
+**It issues no DDL through the Drizzle adapter.** `migrate` is hard-gated to the built-in
+Kysely adapter, so tables come from our migrations in our order. `auth generate` writes a
+`.ts` file and nothing else — and it **overwrites its whole target without merging**, which
+with `-y` is silent. Never point `--output` at the application schema.
+
+**`name` is required and cannot be removed.** It is `required: true` upstream, and schema
+validation checks every declared field for existence on every request — a missing one is
+`missing-column` and takes auth down with a 500, not a warning. So `user.name` exists and
+is the **account** display name, the one a member sees before they have a
+per-conversation one; `member.display_name` is the override inside a Conversation.
+`user.image` is dead: avatars are Media through [0008](../adr/0008-media-pipeline.md).
+
+**Ids must be told to be UUIDs.** The default generator emits a 32-character opaque
+string, and every primary key here is `uuid`. Without `advanced.database.generateId:
+'uuid'` the first sign-up fails with `22P02 invalid input syntax for type uuid` — and
+because Better Auth surfaces that as `Failed to create user`, it reads as a duplicate
+handle rather than an id-shape problem.
+
+**`validationOrder` is not optional for us.** The username validator runs *before*
+normalisation by default, so `Param` is rejected for containing a capital — the user's own
+display casing fails sign-up. `validationOrder: { username: 'post-normalization' }` fixes
+it, and `usernameNormalization` lowercases.
+
+**`immutableUsername` is application-layer only**, enforced on `POST /update-user` and
+nothing else. A direct SQL update bypasses it entirely. The `BEFORE UPDATE OF username`
+trigger is the real enforcement, which is the same reason the reservation is a trigger.
+
+**Uniqueness is read-then-write.** The plugin's check is a `findOne` followed by an
+insert, with no `ON CONFLICT`. The `unique: true` in its schema is a migration hint and
+nothing more. The expression index is what makes the guarantee atomic, and
+`Username is already taken` is a race loser rather than a verdict.
+
+**`auth.api.*` called server-side is not rate limited.** Only client-initiated HTTP is. The
+chat endpoints need their own limiter ([0043](../adr/0043-rate-limits.md)).
+
+**Do not enable `cookieCache`.** A revoked session stays live elsewhere until the cache
+expires, which is a correctness bug against "revoke this device now"
+([0022](../adr/0022-settings-boundary-and-transports.md)). Core `listSessions` reads the
+**signed** cookie, so the server-side API cannot exercise it — `packages/auth/smoke.ts`
+asserts on session rows instead.
+
+---
+
 ## One table, and no mirror
 
 Better Auth is self-hosted and pointed at **the same Neon Postgres as everything else**, so its `user`

@@ -29,6 +29,20 @@
       "when": 1791995979044,
       "tag": "0003_handle_reservation",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791996495180,
+      "tag": "0004_auth_session_and_account",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791996581138,
+      "tag": "0005_user_name_not_null",
+      "breakpoints": true
     }
   ]
 }

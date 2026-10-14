@@ -57,18 +57,16 @@ export const user = pgTable(
     username: text('username').notNull(),
     displayUsername: text('display_username'),
 
-    // ── Better Auth's declared user fields that vartalap does not use ──────────
-    // Both are `input: false` and `returned: false` in the auth config, so nothing
-    // ever writes or reads them. They exist because Better Auth 1.7.x validates the
-    // schema on every request and reports `missing-column` for any declared field
-    // that is absent — and auth is down with a 500 until it matches. `name` is the
-    // awkward one: it is `required: true` upstream and cannot be removed through
-    // config, only overridden. So it lives here as a dead nullable column.
+    // ── Better Auth's declared user fields ─────────────────────────────────────
+    // Both exist because Better Auth 1.7.x validates the schema on every request
+    // and reports `missing-column` for any declared field that is absent — auth is
+    // down with a 500 until it matches.
     //
-    // The real display name is `member.display_name`, scoped to a conversation
-    // (ADR 0016). The real avatar is `avatar_media_id` below. Do not start writing
-    // either of these columns.
-    name: text('name'),
+    // `name` is the ACCOUNT display name, the one a member sees before they have a
+    // per-conversation one. `member.display_name` is the override inside a
+    // Conversation (ADR 0016).
+    name: text('name').notNull(),
+    // Dead. Avatars are Media through ADR 0008's pipeline. Nothing may write this.
     image: text('image'),
 
     /** Avatar is Media through the same pipeline as an attachment (ADR 0008). */
@@ -136,6 +134,13 @@ export const account = pgTable('account', {
   idToken: text('id_token'),
   scope: text('scope'),
   password: text('password'),
+  // Better Auth 1.7.x declares these and validates their existence on every
+  // request. Nullability is ours, not its: a PASSWORD account never has an OAuth
+  // token expiry, and Better Auth does not write these for that case. Declaring
+  // them NOT NULL without a default is exactly the `unexpected-required-column`
+  // failure its own validator warns about — every sign-up would break.
+  accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -150,6 +155,13 @@ export const session = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
+    // ADR 0022 device scope. Core `listSessions` already returns every non-expired
+    // session with ipAddress and userAgent, so these two are the only additions
+    // needed to name a device and mark it trusted. `updateSession` writes only
+    // custom fields and rejects core ones, which is what makes them a safe place
+    // to hang device state.
+    deviceLabel: text('device_label'),
+    deviceTrusted: boolean('device_trusted').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
