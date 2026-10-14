@@ -1,4 +1,4 @@
-# 00010. A receipt has two positions: the one you own, and the one everyone else sees
+# 0010. A receipt has two positions: the one you own, and the one everyone else sees
 
 **Status:** Accepted
 **Date:** 2026-10-14

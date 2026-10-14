@@ -50,6 +50,14 @@ _Avoid_: Removed member, ex-member, kicked, deleted user
 The ordered messages of a conversation, oldest first. The history as a member sees it.
 _Avoid_: Chat history, message log, timeline
 
+**Conversation activity**:
+The position of a conversation's most recent message. It is what orders a member's conversations, and it is a position rather than a time, so nothing done to an older message — editing it, deleting it, being added to the conversation later — can change where that conversation sits in the list.
+_Avoid_: Last active, last seen, updated at, recent
+
+**Muted**:
+A fact about a member's relationship with a conversation: they have asked not to be notified of it. It changes what reaches them and nothing else — the conversation is still shown, in the same place, and its unread count still counts. A conversation a member has not read is not read, and muting it does not make it read.
+_Avoid_: Archived, hidden, snoozed, dismissed
+
 ## Messages
 
 **Message**:
@@ -63,6 +71,10 @@ _Avoid_: File, media (when you mean the reference)
 **Media**:
 A stored file vartalap holds — its bytes, its owner, its lifetime. May be attached to messages, may serve as an avatar, or stand alone unreferenced.
 _Avoid_: Attachment, file, blob
+
+**Run**:
+A maximal sequence of consecutive messages from one author with nothing between them that separates them. A run is the unit a transcript renders, and the unit a time and a receipt attach to; what separates two messages — a different author, a passage of time, a new day — is what ends one run and begins the next. Derived from the transcript and never stored.
+_Avoid_: Burst, group, cluster, block, thread
 
 ## Reading
 
@@ -86,6 +98,10 @@ _Avoid_: Unread messages (when you mean the number), unread total, badge
 **Queued send**:
 A message a member composed that the server has not yet acknowledged. It survives a page reload, flushes when the connection returns, and is visible to the member as a pending item.
 _Avoid_: Pending message, unsent message
+
+**Draft**:
+Text a member has composed and not yet sent. It belongs to the one browser that received it: it is not part of the conversation, no other member can know it exists, and not even the member's own second device can see it. Once sent it stops being a draft and becomes a queued send, which has different promises about durability.
+_Avoid_: Pending message, unsent message, queued send, saved message
 
 **Idempotency key**:
 A value generated once for a queued send and unchanged across every retry of it, so the server recognises a repeat as the same message rather than a second one.
