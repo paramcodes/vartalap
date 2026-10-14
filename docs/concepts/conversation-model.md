@@ -125,7 +125,7 @@ in depth here means *two* implementations of one rule, which is the thing being 
 
 Already settled by the glossary: a **Former member** has left and remains one. Nothing they sent is
 deleted and no membership is erased, so the row is **retained with `left_at`**. Their receipt
-survives too — which is precisely why [ADR 0003](0003-receipt-watermark.md) excludes former members
+survives too — which is precisely why [ADR 0003](../adr/0003-receipt-watermark.md) excludes former members
 from the `Seen` predicate. A retained receipt belonging to someone who left would otherwise pin
 "Seen" off forever.
 
