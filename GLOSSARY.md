@@ -67,12 +67,12 @@ _Avoid_: Attachment, file, blob
 ## Reading
 
 **Receipt**:
-A member's record of how far they have read a conversation. It is a statement about the member and never about the message — a message is not "read" or "unread" on its own — and it advances only as far as the conversation has been shown to that member.
+A member's record of how far they have read a conversation. It is a statement about the member and never about the message — a message is not "read" or "unread" on its own — and it advances to the end of the transcript the moment the conversation is shown to them.
 _Avoid_: Read marker, seen-by, message status, last-read
 
 **Read**:
-A message is read by a member when it has been shown to them. Not when they scrolled past it, not when the conversation was merely opened, and never a property of the message alone: reading is a relation between a member and a point in a transcript.
-_Avoid_: Seen, delivered, viewed, opened
+A message is read by a member once the conversation holding it has been shown to them. Showing a conversation reads all of it, including what was never scrolled to: reading is not tracked per message, and nothing is read that has not been shown.
+_Avoid_: Seen, delivered, viewed
 
 **Seen**:
 Not a domain word. The interface prints "Seen" because Messenger's does; the domain says Read and Receipt, and the two never meet. Copy may borrow a stranger's word, but nothing in the model, the schema, or the protocol may.
