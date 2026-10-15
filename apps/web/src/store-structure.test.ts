@@ -83,6 +83,7 @@ const STORE_SURFACE = [
   'cursor',
   'delete',
   'deliveryFor',
+  'discardSend',
   'discrepancies',
   'draftFor',
   'heldThrough',
