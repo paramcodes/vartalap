@@ -108,6 +108,30 @@ describe('the send request', () => {
     expect('authorId' in parsed).toBe(false);
   });
 
+  test('the client clock is carried, and omitting it is a choice rather than an accident', () => {
+    // `message.client_created_at` is `NOT NULL` with no default, and three
+    // documents call it the CLIENT's clock (ADR 0005, `message-ordering.md`, and
+    // trap 16 in the decisions index) — so the wire has to be able to carry it.
+    //
+    // Optional, and that is a compromise rather than a decision: a send that omits
+    // it is not a `400`, it stores the server's stamp instead. What the schema
+    // must NOT do is reject the field, because that would have made the column's
+    // documented meaning unexpressible and pushed the server into inventing one.
+    //
+    // Display only and never a sort key (ADR 0005), so a clock an hour fast cannot
+    // reorder a transcript. The wrong value is a message shown at the wrong time,
+    // which is the property the column already accepts.
+    const parsed = sendMessageRequest.parse({ ...valid, clientCreatedAt: '2026-10-15T09:30:00.000Z' });
+    expect(parsed.clientCreatedAt).toBe('2026-10-15T09:30:00.000Z');
+
+    // Absent stays absent — a defaulted `''` would be a lie the server would store.
+    expect('clientCreatedAt' in sendMessageRequest.parse(valid)).toBe(false);
+
+    // And it is a datetime, so nonsense is refused rather than written.
+    expect(sendMessageRequest.safeParse({ ...valid, clientCreatedAt: 'yesterday' }).success).toBe(false);
+    expect(sendMessageRequest.safeParse({ ...valid, clientCreatedAt: 1761000000000 }).success).toBe(false);
+  });
+
   test('a media attachment parses, and one that has not been derived yet does not', () => {
     expect(sendMessageRequest.safeParse({ ...valid, attachments: [attachment] }).success).toBe(true);
     // ADR 0008: media is referenced only once the worker has flipped it to `ready`,

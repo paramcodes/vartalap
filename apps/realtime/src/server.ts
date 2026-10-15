@@ -8,14 +8,15 @@
  * it should be reachable by reading this file top to bottom.
  *
  * What this file is NOT allowed to become: a place where the spine lives. Nothing
- * here writes a message, publishes a frame, or knows what a `seq` is. Later units
- * add `src/spine/*` and the router grows one line per route.
+ * here writes a message, publishes a frame, or knows what a `seq` is. Each route
+ * lives in `src/spine/*` and is reached through one line below.
  *
  *     bun run realtime          # from the repo root
  */
 import { auth } from '@vartalap/auth';
-import { errorEnvelope, type ErrorBody } from '@vartalap/protocol';
+import { fail, json, notFound, unauthenticated } from './http.ts';
 import { requireSession } from './session.ts';
+import { handleSendMessage } from './spine/send-route.ts';
 
 /**
  * Better Auth's own default base path, restated so the mount point and the
@@ -23,31 +24,6 @@ import { requireSession } from './session.ts';
  * matching and every auth route 404s.
  */
 const AUTH_PREFIX = '/api/auth';
-
-const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
-}
-
-/**
- * Every failure leaves as the one envelope `@vartalap/protocol` defines, so there
- * is exactly one error shape on the wire. The `code` is what a client branches on;
- * `retryable` is in the envelope because a send queue has to know whether to back
- * off or to give up, and a client that had to infer that from a status code would
- * be mirroring a table it cannot see.
- */
-function fail(body: ErrorBody, status: number): Response {
-  return json(errorEnvelope.parse({ error: body }), status);
-}
-
-/**
- * The 401. A signed-out member's queued sends stay queued and re-flush on sign-in,
- * so this one is retryable — see `errorBody`.
- */
-function unauthenticated(): Response {
-  return fail({ code: 'unauthenticated', message: 'a valid session cookie is required', retryable: true }, 401);
-}
 
 export async function handleRequest(request: Request): Promise<Response> {
   const { pathname } = new URL(request.url);
@@ -66,8 +42,7 @@ export async function handleRequest(request: Request): Promise<Response> {
 
   // The protected route that proves the session boundary works. It is a
   // harness, not a product route: it exists so 3.A can show an anonymous caller
-  // gets 401 and a signed-in caller gets their own id back. `/api/conversations`
-  // and friends are 3.C's problem.
+  // gets 401 and a signed-in caller gets their own id back.
   if (pathname === '/api/me') {
     if (request.method !== 'GET') {
       return fail({ code: 'methodNotAllowed', message: 'use GET here', retryable: false }, 405);
@@ -77,7 +52,11 @@ export async function handleRequest(request: Request): Promise<Response> {
     return json({ userId });
   }
 
-  return fail({ code: 'notFound', message: `no route for ${pathname}`, retryable: false }, 404);
+  // ── the spine. One line per route; each answers `null` for a path it does not own.
+  const sent = await handleSendMessage(request, pathname);
+  if (sent !== null) return sent;
+
+  return notFound(pathname);
 }
 
 export function start(port = Number(process.env.REALTIME_PORT ?? 3000)) {

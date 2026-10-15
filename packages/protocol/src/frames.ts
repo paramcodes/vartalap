@@ -140,6 +140,22 @@ export const sendMessageRequest = z.object({
   id: messageId,
   body: z.string().max(8192),
   attachments: z.array(attachment),
+  /**
+   * The client clock, which becomes `message.client_created_at`.
+   *
+   * ⚠️ **Optional, and the column is `NOT NULL` with no default** — so omitting it
+   * does not fail the send, it stores the server's stamp instead. That is the one
+   * honest reason it is optional rather than required, and it is a compromise
+   * rather than a decision: the column is documented as the CLIENT's clock in ADR
+   * 0005, in `message-ordering.md`, and as trap 16 in the decisions index, and none
+   * of those documents put the value on the wire. Until a client sends it, the
+   * column carries the server's time and the naming is a lie.
+   *
+   * It is display only and NEVER a sort key (ADR 0005), so a clock an hour fast
+   * cannot reorder a transcript — the worst a client can do here is show its own
+   * message at the wrong time, which is the property the column already accepts.
+   */
+  clientCreatedAt: z.string().datetime().optional(),
 });
 
 export type SendMessageRequest = z.infer<typeof sendMessageRequest>;
