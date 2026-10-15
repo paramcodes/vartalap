@@ -1,0 +1,22 @@
+{
+  "name": "@vartalap/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test --preload ./src/testing/fake-indexeddb.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vartalap/protocol": "workspace:*",
+    "dexie": "^4.4.6"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^5.7.0"
+  }
+}

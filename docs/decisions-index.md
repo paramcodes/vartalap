@@ -66,6 +66,7 @@ drift.
 | [0058-receipt-sharing-is-a-transport-signal](adr/0058-receipt-sharing-is-a-transport-signal.md) | `shared_through` is the mechanism and `sharing` is a signal about a permission; reading the boolean as the mechanism is how a privacy control becomes a disclosure button |
 | [0059-the-send-endpoint](adr/0059-the-send-endpoint.md) | `POST /api/conversations/{id}/messages`, four fields decide "the same content", and the error envelope carries `retryable` |
 | [0060-stored-state-is-narrow-and-derived-state-is-wide](adr/0060-stored-state-is-narrow-and-derived-state-is-wide.md) | A client row stores three states and derives five; `sent` is `seq !== null` and `delivered`/`read` are per-member watermarks, so no message row ever grows a read flag |
+| [0061-the-client-data-layer](adr/0061-the-client-data-layer.md) | The send queue is a query, the receive path is one function with three call sites enforced by a test, and a `COUNT(*)` mismatch refetches from the floor once and then records rather than loops |
 
 | Concept | Teaches |
 |---|---|
