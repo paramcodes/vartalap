@@ -18,6 +18,7 @@ import { fail, json, notFound, unauthenticated } from './http.ts';
 import { requireSession } from './session.ts';
 import { handleBlocks } from './spine/blocks-route.ts';
 import { handleCatchUp } from './spine/catch-up-route.ts';
+import { handleLeaveRejoin } from './spine/leave-route.ts';
 import { handleCreateConversation } from './spine/conversations-route.ts';
 import { handleDeliveryAck } from './spine/delivery-route.ts';
 import { handleHistory } from './spine/history-route.ts';
@@ -82,6 +83,9 @@ export async function handleRequest(request: Request): Promise<Response> {
 
   const blocks = await handleBlocks(request, pathname);
   if (blocks !== null) return blocks;
+
+  const membership = await handleLeaveRejoin(request, pathname);
+  if (membership !== null) return membership;
 
   return notFound(pathname);
 }
