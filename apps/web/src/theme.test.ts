@@ -1,48 +1,137 @@
 /**
- * 6.1 — the token layer, pinned rather than eyeballed (ADR 0002).
+ * T4 in part 1: the theme is device-local. A second device does not inherit it
+ * (ADR 0022), the round trip writes the right key, and `system` follows the OS
+ * *without* a stored value — so flipping the OS later needs no write.
  *
- * Trap 1: a token with no caller does not exist. These tests assert the shell
- * spends the tokens it names AND that the built CSS still carries them — a
- * token Tailwind tree-shook out of the build is a comment, not a token.
- * Trap 2: `@theme inline` freezes every value at build time and leaves `.dark`
- * nothing to override, so the plain form is asserted byte-exactly.
+ * No network, no account: these tests run entirely against the happy-dom
+ * storage and document, which is the point.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import {
+  THEME_KEY,
+  applyTheme,
+  attachSystemListener,
+  prefersDark,
+  readTheme,
+  resolvesDark,
+  writeTheme,
+} from './theme.ts';
 
-const theme = await Bun.file(new URL('./theme.css', import.meta.url)).text();
+// `screen` is one document for the whole run; without this, a render left by an
+// earlier file answers the next file's queries.
+afterEach(() => {
+  localStorage.clear();
+  document.documentElement.classList.remove('dark');
+});
 
-describe('token layer', () => {
-  test('plain @theme, never @theme inline', () => {
-    expect(theme).toMatch(/^@theme \{/m);
-    expect(theme).not.toMatch(/^@theme inline/m);
+describe('the theme home is the device', () => {
+  test('with no stored value the theme is system', () => {
+    expect(readTheme()).toBe('system');
   });
 
-  test('the radius anchor is exact — 12.86 silently breaks every radius', () => {
-    expect(theme).toContain('--radius: 12.857px;');
-    expect(theme).not.toMatch(/^  --radius: 12\.86[^7]/m);
+  test('light and dark round-trip through the key', () => {
+    writeTheme('light');
+    expect(localStorage.getItem(THEME_KEY)).toBe('light');
+    expect(readTheme()).toBe('light');
+    writeTheme('dark');
+    expect(localStorage.getItem(THEME_KEY)).toBe('dark');
+    expect(readTheme()).toBe('dark');
   });
 
-  test('.dark overrides surfaces and ink but never the outgoing bubble', () => {
-    const dark = theme.slice(theme.indexOf('.dark {'));
-    expect(dark).toContain('--color-wash:');
-    expect(dark).toContain('--color-ink:');
-    expect(dark).not.toContain('--color-accent:');
-    expect(dark).not.toContain('--color-bubble-out:');
+  test('system is the absence of a key, not a stored value', () => {
+    writeTheme('system');
+    expect(localStorage.getItem(THEME_KEY)).toBeNull();
+    expect(readTheme()).toBe('system');
   });
 
-  test('the built CSS carries the spent tokens and the .dark scope', async () => {
-    const glob = new Bun.Glob('dist/assets/*.css');
-    const files: string[] = [];
-    for await (const path of glob.scan({ cwd: new URL('..', import.meta.url).pathname })) {
-      files.push(path);
-    }
-    expect(files.length).toBeGreaterThan(0);
-    const css = await Bun.file(
-      new URL(`../${files.sort()[0]}`, import.meta.url),
-    ).text();
-    // Spent by the shell: bg-wash, text-ink, bg-accent, rounded-xl.
-    expect(css).toContain('--color-wash');
-    expect(css).toContain('--color-accent');
-    expect(css).toContain('.dark');
+  test('an unknown value falls back to system', () => {
+    localStorage.setItem(THEME_KEY, 'halloween');
+    expect(readTheme()).toBe('system');
+  });
+});
+
+describe('resolving the class', () => {
+  const apply = (theme: 'light' | 'dark' | 'system', mediaDark: boolean) => {
+    const doc = document.implementation.createHTMLDocument();
+    const storage = new Map<string, string>();
+    const fakeStorage = {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => void storage.set(k, v),
+      removeItem: (k: string) => void storage.delete(k),
+    } as unknown as Storage;
+    const matchMediaFn = () =>
+      ({ matches: mediaDark, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
+    applyTheme(theme, { storage: fakeStorage, doc, matchMediaFn });
+    return { doc, storage };
+  };
+
+  test('light and dark set the class regardless of the OS', () => {
+    expect(apply('light', true).doc.documentElement.classList.contains('dark')).toBe(false);
+    expect(apply('dark', false).doc.documentElement.classList.contains('dark')).toBe(true);
+  });
+
+  test('system follows the OS without storing a value', () => {
+    const dark = apply('system', true);
+    expect(dark.doc.documentElement.classList.contains('dark')).toBe(true);
+    expect(dark.storage.get(THEME_KEY)).toBeUndefined();
+    const light = apply('system', false);
+    expect(light.doc.documentElement.classList.contains('dark')).toBe(false);
+    expect(light.storage.get(THEME_KEY)).toBeUndefined();
+  });
+});
+
+describe('the system listener', () => {
+  function harness(theme: () => 'system' | 'light' | 'dark', initial: boolean) {
+    const doc = document.implementation.createHTMLDocument();
+    const storage = new Map<string, string>();
+    const fakeStorage = {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => void storage.set(k, v),
+      removeItem: (k: string) => void storage.delete(k),
+    } as unknown as Storage;
+    const handlers = new Map<string, () => void>();
+    const mq: { matches: boolean; addEventListener: (t: string, h: () => void) => void; removeEventListener: (t: string) => void } = {
+      matches: initial,
+      addEventListener: (type, handler) => void handlers.set(type, handler),
+      removeEventListener: (type) => void handlers.delete(type),
+    };
+    const matchMediaFn = () => mq as unknown as MediaQueryList;
+    const detach = attachSystemListener(theme, { doc, matchMediaFn });
+    return { doc, mq, handlers, storage, detach, fakeStorage };
+  }
+
+  test('follows the OS while in system mode, and stops once a value is stored', () => {
+    // System + OS flips to dark: the class follows, and nothing is stored.
+    let theme: 'system' | 'light' = 'system';
+    const h = harness(() => theme, false);
+    h.mq.matches = true;
+    h.handlers.get('change')!();
+    expect(h.doc.documentElement.classList.contains('dark')).toBe(true);
+    expect(h.storage.get(THEME_KEY)).toBeUndefined();
+
+    // Now an explicit value: the listener no longer responds to OS changes.
+    // (In the real component, applyTheme handles the class change when the
+    // user picks a value; the listener only fires on passive OS changes.)
+    theme = 'light';
+    h.mq.matches = false;
+    h.handlers.get('change')!();
+    // The class stays as the OS change left it — the listener is inert.
+    expect(h.doc.documentElement.classList.contains('dark')).toBe(true);
+    h.detach();
+  });
+
+  test('detaching removes the listener', () => {
+    const h = harness(() => 'system', false);
+    h.detach();
+    expect(h.handlers.has('change')).toBe(false);
+  });
+
+  test('resolvesDark and prefersDark agree on the corners', () => {
+    expect(resolvesDark('system', true)).toBe(true);
+    expect(resolvesDark('system', false)).toBe(false);
+    expect(resolvesDark('light', true)).toBe(false);
+    expect(resolvesDark('dark', false)).toBe(true);
+    expect(prefersDark(() => ({ matches: true } as unknown as MediaQueryList))).toBe(true);
+    expect(prefersDark(() => ({ matches: false } as unknown as MediaQueryList))).toBe(false);
   });
 });

@@ -11,6 +11,7 @@ import { Route, Routes } from 'react-router';
 import { queryClient } from './conversations.ts';
 import { AppProviders, Layout, type AppDeps, type AppTestDeps } from './layout.tsx';
 import { EmptyTranscript, TranscriptPanel } from './transcript-panel.tsx';
+import { ConversationSettings, GlobalSettings } from './settings-route.tsx';
 
 export interface AppProps {
   readonly deps: AppDeps;
@@ -27,7 +28,9 @@ export function App({ deps, client, testDeps = {} }: AppProps) {
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<EmptyTranscript />} />
+            <Route path="settings" element={<GlobalSettings />} />
             <Route path="c/:id" element={<TranscriptPanel />} />
+            <Route path="c/:id/settings" element={<ConversationSettings />} />
           </Route>
         </Routes>
       </AppProviders>

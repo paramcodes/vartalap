@@ -24,10 +24,15 @@ const globals: Record<string, unknown> = {
   KeyboardEvent: window.KeyboardEvent,
   MouseEvent: window.MouseEvent,
   FocusEvent: window.FocusEvent,
+  localStorage: window.localStorage,
   getComputedStyle: window.getComputedStyle.bind(window),
   requestAnimationFrame: window.requestAnimationFrame.bind(window),
   cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
 };
+
+if ((globalThis as Record<string, unknown>).matchMedia === undefined) {
+  (globalThis as Record<string, unknown>).matchMedia = (query: string) => window.matchMedia(query);
+}
 
 for (const [key, value] of Object.entries(globals)) {
   if ((globalThis as Record<string, unknown>)[key] === undefined) {

@@ -31,8 +31,14 @@
  * this function is deliberately callable from outside any transaction.
  */
 import { and, eq, isNull } from 'drizzle-orm';
-import { conversation, db, member } from '@vartalap/database';
-import { membership, seqFromBigInt, type Membership } from '@vartalap/protocol';
+import { conversation, db, member, receipt } from '@vartalap/database';
+import {
+  mediaId as mediaIdScalar,
+  membership,
+  seqFromBigInt,
+  type Membership,
+} from '@vartalap/protocol';
+import { canSend } from './blocks.ts';
 
 /**
  * The predicate itself, as a SQL fragment, for callers that need it INSIDE a query
@@ -91,6 +97,20 @@ export async function readMembership(
 
   const memberRows = await db.select().from(member).where(eq(member.conversationId, conversationId));
 
+  // ADR 0007's one predicate, called from the send path AND the interface, so
+  // the composer's lock and the server's refusal can never be two answers.
+  const permission = await canSend(conversationId, userId);
+
+  // The viewer's own sharing flag, carried by this read so the toggle has one
+  // source. No receipt row means the default (0058): `true`. The toggle is the
+  // only writer of it, via the `/receipt/sharing` POST — never a receipt advance.
+  const [ownReceipt] = await db
+    .select({ sharing: receipt.sharing })
+    .from(receipt)
+    .where(and(eq(receipt.conversationId, conversationId), eq(receipt.userId, userId)))
+    .limit(1);
+  const sharing = ownReceipt?.sharing ?? true;
+
   return membership.parse({
     conversation: {
       id: String(row.id),
@@ -103,9 +123,11 @@ export async function readMembership(
       conversationId: String(entry.conversationId),
       userId: String(entry.userId),
       displayName: entry.displayName,
-      avatarMediaId: entry.avatarMediaId,
+      avatarMediaId: entry.avatarMediaId === null ? null : mediaIdScalar.parse(entry.avatarMediaId),
       leftAt: entry.leftAt === null ? null : entry.leftAt.toISOString(),
       mutedAt: entry.mutedAt === null ? null : entry.mutedAt.toISOString(),
     })),
+    permission,
+    sharing,
   });
 }

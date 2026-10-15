@@ -52,13 +52,6 @@ export const member = z.object({
 
 export type Member = z.infer<typeof member>;
 
-export const membership = z.object({
-  conversation: conversation,
-  members: z.array(member),
-});
-
-export type Membership = z.infer<typeof membership>;
-
 /**
  * An Attachment is one Message's reference to one piece of Media (ADR: glossary).
  * Media itself is never embedded in a frame — only its id, and only once the worker
@@ -242,6 +235,28 @@ export const sendPermission = z.discriminatedUnion('allowed', [
 ]);
 
 export type SendPermission = z.infer<typeof sendPermission>;
+
+/**
+ * A Membership — the transcript's read. It carries the send permission decided
+ * by the one predicate the send path uses (ADR 0007), so the composer's lock
+ * and the server's refusal are one answer rather than two.
+ *
+ * Declared here, below `sendPermission`, because a schema referencing a later
+ * `const` is a temporal-dead-zone crash at module load rather than a type
+ * error — the one place ordering matters in this file.
+ */
+export const membership = z.object({
+  conversation: conversation,
+  members: z.array(member),
+  permission: sendPermission,
+  // The viewer's own read-receipt sharing flag (ADR 0022, 0058). The sharing
+  // toggle reads this and only this, and never writes positions through it —
+  // that is the receipt-advance transport's job. A member with no receipt row
+  // defaults to `true` (0058: the permissive default).
+  sharing: z.boolean(),
+});
+
+export type Membership = z.infer<typeof membership>;
 
 export const MAX_GROUP_MEMBERS = 500;
 export type { Seq };
