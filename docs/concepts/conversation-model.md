@@ -61,11 +61,11 @@ contact*, not a rare edge. An application-level check is a race with extra steps
 Creation is one statement plus a re-select:
 
 ```sql
-INSERT INTO conversations (id, kind, direct_key)
+INSERT INTO conversation (id, kind, direct_key)
 VALUES ($1, 'direct', $2)
 ON CONFLICT (direct_key) DO NOTHING;
 
-SELECT * FROM conversations WHERE direct_key = $2;
+SELECT * FROM conversation WHERE direct_key = $2;
 ```
 
 Two concurrent senders cannot produce two conversations. They can produce two inserts, one of which

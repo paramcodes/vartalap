@@ -14,6 +14,7 @@
  *     bun run realtime          # from the repo root
  */
 import { auth } from '@vartalap/auth';
+import { errorEnvelope, type ErrorBody } from '@vartalap/protocol';
 import { requireSession } from './session.ts';
 
 /**
@@ -30,19 +31,22 @@ function json(body: unknown, status = 200): Response {
 }
 
 /**
- * The 401. Every protected route answers with exactly this body, so a client can
- * tell "you are signed out" apart from "that does not exist" without reading a
- * status string.
- *
- * The envelope shape is provisional. Stage 3. gives `409` and Postgres codes a
- * shape; until then there is exactly one error body and nothing to be consistent
- * with.
+ * Every failure leaves as the one envelope `@vartalap/protocol` defines, so there
+ * is exactly one error shape on the wire. The `code` is what a client branches on;
+ * `retryable` is in the envelope because a send queue has to know whether to back
+ * off or to give up, and a client that had to infer that from a status code would
+ * be mirroring a table it cannot see.
+ */
+function fail(body: ErrorBody, status: number): Response {
+  return json(errorEnvelope.parse({ error: body }), status);
+}
+
+/**
+ * The 401. A signed-out member's queued sends stay queued and re-flush on sign-in,
+ * so this one is retryable — see `errorBody`.
  */
 function unauthenticated(): Response {
-  return json(
-    { error: { code: 'unauthenticated', message: 'a valid session cookie is required' } },
-    401,
-  );
+  return fail({ code: 'unauthenticated', message: 'a valid session cookie is required', retryable: true }, 401);
 }
 
 export async function handleRequest(request: Request): Promise<Response> {
@@ -66,14 +70,14 @@ export async function handleRequest(request: Request): Promise<Response> {
   // and friends are 3.C's problem.
   if (pathname === '/api/me') {
     if (request.method !== 'GET') {
-      return json({ error: { code: 'method_not_allowed' } }, 405);
+      return fail({ code: 'methodNotAllowed', message: 'use GET here', retryable: false }, 405);
     }
     const userId = await requireSession(request);
     if (userId === null) return unauthenticated();
     return json({ userId });
   }
 
-  return json({ error: { code: 'not_found', path: pathname } }, 404);
+  return fail({ code: 'notFound', message: `no route for ${pathname}`, retryable: false }, 404);
 }
 
 export function start(port = Number(process.env.REALTIME_PORT ?? 3000)) {

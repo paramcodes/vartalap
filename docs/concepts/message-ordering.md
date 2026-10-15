@@ -112,10 +112,26 @@ time.* Serialise that and the race ceases to exist.
 ```sql
 BEGIN;
   SELECT pg_advisory_xact_lock(<int64 derived from conversation_id>);
-  INSERT INTO messages (id, conversation_id, author_id, body, created_at) VALUES (...);
+  INSERT INTO message (id, conversation_id, author_id, body, client_created_at) VALUES (...);
   INSERT INTO outbox   (...) VALUES (...);
 COMMIT;
 ```
+
+The tables are **singular**: `message` and `conversation`, not `messages` and `conversations`. That
+is what the migration creates and therefore what the code runs against. Prose written before it
+landed says `messages.seq`, and that SQL does not parse.
+
+The insert supplies `client_created_at` explicitly because the table has **two** timestamps and only
+one of them can be defaulted by the server:
+
+| column | whose clock | why it is never a sort key |
+|---|---|---|
+| `client_created_at` | the **client's**, sent with the request | device clocks drift and users set them |
+| `created_at` | the **server's**, `DEFAULT now()` | `now()` is `transaction_timestamp()`, so it is degenerate within a transaction — [above](#what-is-never-a-sort-key) |
+
+`client_created_at` is `NOT NULL` with no default. A send that supplies only `created_at` violates it,
+the insert fails, and the failure takes the outbox row down with it — the one guarantee
+[0004](../adr/0004-message-durability.md) exists to provide.
 
 The lock is transaction-scoped, so it releases itself at commit or rollback with nothing to remember.
 Readers do not see it and do not contend with it. Different conversations never collide. And a single

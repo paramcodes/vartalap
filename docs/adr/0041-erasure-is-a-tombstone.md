@@ -55,6 +55,27 @@ The `session` and `account` rows go, and so does Better Auth's `verification` ro
 that these are not the person's *content*, they are the person's **ability to act**, and leaving a
 deleted user signed in is a security defect rather than a privacy feature.
 
+**What "cascades nothing" is a fact about.** It is a fact about *this endpoint*, not about the schema,
+and the distinction matters because the schema is the opposite of uniform. Erasure is an `UPDATE`, so
+no foreign key fires at all. Were anyone to run `DELETE FROM "user"` on a tombstone, four tables
+cascade — `account`, `session`, `block` from either column, and `push_subscription` — while
+`receipt`, `delivery`, `member`, `message.author_id` and `media.owner_id` are `NO ACTION` and
+**refuse the delete**.
+
+**So the reason receipts and deliveries survive is not that a cascade was configured off. It is that
+the user row survives to be referenced.** That is the actual mechanism behind the decision below, and
+it is worth stating because the alternative reading — "there are no cascades from `user`" — is false
+and would produce the wrong fix for the wrong reason.
+
+**`block` and `push_subscription` are the two this ADR does not account for.** Harmless today, for the
+reason above. They stop being harmless in the one scenario *What would reverse this* already names —
+staged deletion, hard-deleting the tombstone after a window — where both vanish with no event: a push
+subscription stops receiving, and **a block stops blocking.** The second is behavioural rather than
+cosmetic — the erased member's block on somebody disappears and that somebody can message them again,
+with nothing in this document and nothing in the H-06 runbook saying so. **A staged deletion must
+enumerate both tables by name before it is permitted to `DELETE`.** Recorded as an open item in
+[`docs/concepts/hardening-backlog.md`](../concepts/hardening-backlog.md).
+
 ### The handle is reserved permanently. It is never released.
 
 ### Membership is untouched, attachments are retained, receipts and deliveries are retained
@@ -68,7 +89,7 @@ front of you.
 work is to drop the author reference to a nullable column, which is a rewrite of every query that
 renders a sender and a rewrite of the send path.
 
-**`ON DELETE SET NULL` on `messages.author_id`.** This looks tidier and it is worse. It costs every
+**`ON DELETE SET NULL` on `message.author_id`.** This looks tidier and it is worse. It costs every
 query a nullable author, and it erases the distinction the glossary cares about: a message whose
 sender is null because they *erased* is indistinguishable from one whose sender is null because they
 were *never recorded*, and a former member's messages must survive while remaining attributable. It

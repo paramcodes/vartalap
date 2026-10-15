@@ -62,10 +62,15 @@ second ago.
 ```sql
 BEGIN;
   SELECT pg_advisory_xact_lock(<int64 derived from conversation_id>);
-  INSERT INTO messages (id, conversation_id, author_id, body, created_at) VALUES (...);
+  INSERT INTO message (id, conversation_id, author_id, body, client_created_at) VALUES (...);
   INSERT INTO outbox   (...) VALUES (...);
 COMMIT;
 ```
+
+The tables are **singular**: `message` and `conversation`, matching the migration. The insert supplies
+both timestamps because `client_created_at` is `NOT NULL` with no default — it is the client's clock,
+and neither it nor the server's `created_at` is ever a sort key.
+[`docs/concepts/message-ordering.md`](../concepts/message-ordering.md) has the reasoning.
 
 The lock is transaction-scoped and released automatically at commit or rollback. It is invisible to
 readers, it does not contend across conversations, and a single-message send touches exactly one

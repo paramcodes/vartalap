@@ -13,6 +13,7 @@
  * they are written.
  */
 import { afterAll, expect, test } from 'bun:test';
+import { errorEnvelope } from '@vartalap/protocol';
 import { sql } from '@vartalap/database/test-harness';
 import { start } from './server.ts';
 
@@ -65,9 +66,28 @@ test('the shell routes, and health needs no session', async () => {
 test('an unauthenticated request to a protected route is 401', async () => {
   const response = await me();
   expect(response.status).toBe(401);
-  expect(await response.json()).toEqual({
-    error: { code: 'unauthenticated', message: 'a valid session cookie is required' },
+  // Parsed through the shared envelope rather than compared to a literal, so this
+  // test fails if the server and `@vartalap/protocol` ever disagree about the
+  // shape. A hand-copied literal would only prove the two copies still match each
+  // other, which is not the claim.
+  expect(errorEnvelope.parse(await response.json())).toEqual({
+    error: {
+      code: 'unauthenticated',
+      message: 'a valid session cookie is required',
+      // Retryable: a signed-out member's queued sends re-flush on sign-in rather
+      // than becoming a failed row. That is the whole reason `retryable` is a field
+      // in the envelope instead of something a client infers from a status code.
+      retryable: true,
+    },
   });
+});
+
+test('an unrouted path answers with the same envelope, not a second error shape', async () => {
+  const response = await fetch(`${origin}/api/nope`);
+  expect(response.status).toBe(404);
+  const parsed = errorEnvelope.parse(await response.json());
+  expect(parsed.error.code).toBe('notFound');
+  expect(parsed.error.retryable).toBe(false);
 });
 
 test('a forged cookie is 401, not a crash and not a 200', async () => {

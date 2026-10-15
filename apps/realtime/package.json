@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@vartalap/auth": "workspace:*",
-    "@vartalap/database": "workspace:*"
+    "@vartalap/database": "workspace:*",
+    "@vartalap/protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",

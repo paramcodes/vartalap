@@ -43,6 +43,13 @@
       "when": 1791996581138,
       "tag": "0005_user_name_not_null",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792028927419,
+      "tag": "0006_reconciliation",
+      "breakpoints": true
     }
   ]
 }

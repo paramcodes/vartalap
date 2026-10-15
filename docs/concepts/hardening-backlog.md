@@ -97,7 +97,7 @@ only they have access to, and none of it is code.
 | H-15 | Structured JSON logs with a `request_id` propagated app → realtime, and a redaction list (`body`, `password`, `token`, `authorization`) | Builder | S | The thing every other signal depends on. Logs are the only place a *sequence* of events is visible; a metric cannot tell you what happened. |
 | H-16 | `/health` that actually checks Neon, Redis and R2, and reveals nothing (no version, no hostnames, unauthenticated) | Builder | S | A liveness ping returns 200 while the database is suspended. A dependency check returns 503, which is the difference between a red light and a mystery. |
 | H-17 | Five numbers on one screen (below) | Builder | S | Each maps to a specific failure this system can actually have. |
-| H-18 | Outbox purge: delete on successful fan-out; failed rows retained 24 h then purged | Builder | S | The outbox is the only table whose growth is unbounded and whose rows stop being useful the moment they work. |
+| H-18 | Outbox purge: delete on successful fan-out; failed rows retained 24 h from `created_at`, then purged — **now expressible** | Builder | S | The outbox is the only table whose growth is unbounded and whose rows stop being useful the moment they work. `attempts` and `last_error` landed in stage 3, which is what made the rule expressible at all; the rule and its anchor are now in [0057](../adr/0057-the-outbox-relay-is-a-poller.md). |
 | H-19 | **Invite-only signup** — *proposed, not decided* | **Operator** | XS | The origin has to be public (PWA + Web Push force HTTPS and a public hostname), but **nothing forces signup to be open**. This is the cheapest abuse control that exists and it closes the ticket's own question — *does the design assume a public deployment?* — with "the origin yes, the door no." |
 | H-20 | **Report-a-message and a moderation queue** — deferred *by decision* in round 1, unblocked at this gate | **Operator** + named owner | L | Round 1 set the trigger for reopening moderation at the first second user. So it sits here, deliberately unbuilt, with an owner. **A report button nobody reads is worse than no button** — it manufactures a false sense of moderation. |
 | H-21 | Move to Neon Launch (~$1/month) for scheduled snapshots and a 7-day history window | **Operator** | XS | The only item on this list that costs money before it must. It buys the "bad migration forty minutes ago" recovery that no nightly dump can provide. |
@@ -129,7 +129,7 @@ is **five numbers, one endpoint, one request id, one error sink** — and one de
 
 | number | catches | why it is on this list |
 |---|---|---|
-| **Outbox lag** — age of the oldest undelivered outbox row | The [0004](../adr/0004-message-durability.md) failure: a message that is durable but was never delivered | **Nobody sees this. It is the defining failure of this architecture and it is invisible from the outside** — a member would simply report "she didn't get my message," which is unreproducible and arrives days later. |
+| **Outbox lag** — age of the oldest row with `published_at IS NULL AND attempts > 0` | The [0004](../adr/0004-message-durability.md) failure: a message that is durable but was never delivered | **Nobody sees this. It is the defining failure of this architecture and it is invisible from the outside** — a member would simply report "she didn't get my message," which is unreproducible and arrives days later. **Rows with `attempts = 0` are excluded deliberately**: under [0057](../adr/0057-the-outbox-relay-is-a-poller.md)'s purge rule a never-attempted row is a fresh send and is never purged on age, so including them pins the number to the oldest un-attempted row and the metric stops moving exactly when the relay is broken. `attempts` is what made that distinction queryable at all. |
 | **Rate-limiter rejections per action** | A limit tuned too tight, and a client loop | A limiter that works perfectly and eats real sends produces no error anywhere. It just looks like a flaky network. |
 | **Media rows past their TTL in a non-terminal state** | The worker dying without writing `failed` | [0008](../adr/0008-media-pipeline.md) already requires a terminal state. This is the metric that proves the requirement is being met. |
 | **Quota consumed ÷ quota, per metric** | Approaching a ceiling that will suspend the project until the month ends | [0044](../adr/0044-cost-ceilings.md). This is the cost control and the reliability control being the same control. |
@@ -194,11 +194,11 @@ thing whose bytes are separable from its references.
 
 | data | where | retained | decided in |
 |---|---|---|---|
-| Messages | `messages` | Life of the conversation. **Never auto-deleted** | [0003](../adr/0003-receipt-watermark.md) |
+| Messages | `message` | Life of the conversation. **Never auto-deleted** | [0003](../adr/0003-receipt-watermark.md) |
 | Attachments | R2 | Life of the referencing message. Avatar and orphans purged on schedule | [0008](../adr/0008-media-pipeline.md) |
 | Receipts | `receipt` | Life of the membership. **Survives leaving** | [0003](../adr/0003-receipt-watermark.md) |
 | Delivery | `delivery` | Life of the membership | [0004](../adr/0004-message-durability.md) |
-| **Outbox rows** | `outbox` | **Deleted on successful fan-out. Failed rows: 24 h, then purged** | this document |
+| **Outbox rows** | `outbox` | **Published → deleted on success. Unpublished and attempted → 24 h from `created_at`, then purged. Unpublished and never attempted → never purged on age** | [0057](../adr/0057-the-outbox-relay-is-a-poller.md) |
 | Presence | Redis | 45 s TTL. Nothing to retain | [0006](../adr/0006-presence.md) |
 | Typing | nowhere | **Never stored** | [0006](../adr/0006-presence.md) |
 | Sessions | `session` | Better Auth default. Deleted immediately on erasure | [0041](../adr/0041-erasure-is-a-tombstone.md) |
@@ -209,12 +209,22 @@ thing whose bytes are separable from its references.
 | Backups | R2 | 30 days, minus any pre-erasure dumps | [0042](../adr/0042-backups.md) |
 | Logs | wherever | 30 days | this document |
 
-The outbox is the only new rule here and it needs one sentence of justification: the outbox is the
-**durable record of sends not yet delivered**, so the moment a send *is* delivered the row has done
-its job. Keeping it forever is unbounded growth for a table whose contents stop being true. Deleting
-it is safe because catch-up is keyed on `messages.seq`, not on the outbox
-([0005](../adr/0005-message-ordering.md)). 24 hours of failed rows is enough to notice a systematic
-failure and short enough not to be a second database.
+The outbox is the only new rule here and it needs one sentence of justification: the outbox holds
+**sends not yet fanned out**, so the moment a send *is* delivered the row has done its job. Keeping
+it forever is unbounded growth for a table whose contents stop being true. Deleting it is safe
+because catch-up is keyed on `message.seq`, not on the outbox
+([0005](../adr/0005-message-ordering.md)), and because a row purged at 24 h degrades a **live frame**
+into a **catch-up row** — it never deletes a message. 24 hours of failed rows is enough to notice a
+systematic failure and short enough not to be a second database.
+
+**This rule was inexpressible until stage 3, and now is not.** With only `published_at`, a row the
+relay had tried five times and a row it had never touched were the same value, so "failed" had no
+anchor and a dead-letter queue could not be built on top of it. [`0057`](../adr/0057-the-outbox-relay-is-a-poller.md)
+records the three cases the shipped `attempts` and `last_error` columns make expressible, and fixes
+the load-bearing choice in it: **the 24 hours run from `created_at`, not from the last attempt.**
+Anchoring on the last attempt would need a timestamp the schema does not have, and — worse — would let
+a permanently failing row be retried forever and never purged, which is the unbounded growth this rule
+exists to close. **There is no attempt cap.**
 
 ### Export is nearly free, and here is why
 
@@ -249,7 +259,7 @@ The map lists end-to-end encryption as fog and says *"the schema should not fore
 ticket can make that concrete, because two settled decisions are in the blast radius:
 
 1. **Server-side search stops working.** [0009](../adr/0009-message-search.md) stores a generated
-   `tsvector` over `messages.body` and indexes it with GIN. **A `tsvector` cannot be built from
+   `tsvector` over `message.body` and indexes it with GIN. **A `tsvector` cannot be built from
    ciphertext.** E2EE does not make search expensive; it makes server-side search *impossible*
    without a second index of searchable plaintext — which is the entire privacy guarantee, stored in
    a column, defeating the purpose.
@@ -258,7 +268,7 @@ ticket can make that concrete, because two settled decisions are in the blast ra
    more; a member exporting their own history means a client-side decrypt over what it happens to
    hold, which is not the same promise for a member who has since reinstalled.
 
-So "don't foreclose E2EE" concretely requires: `messages.body` as an opaque column (cheap — it
+So "don't foreclose E2EE" concretely requires: `message.body` as an opaque column (cheap — it
 already is), **and** accepting that search becomes client-side, and **and** accepting that export
 becomes partial. The third is the one that hurts, and it is the reason this belongs at Gate 2 as an
 explicit decision with an owner rather than a fog line.
@@ -299,3 +309,21 @@ Carried forward rather than quietly settled:
 - **The application framework is not pinned.** The header module in [0040](../adr/0040-security-headers.md)
   must not depend on one, and whichever framework lands must be able to read a request-scoped nonce.
   This is the most likely thing to break H-01.
+- **`outbox.conversation_id` carries no foreign key.** It is the only denormalised id in the schema
+  without one; `member`, `receipt` and `delivery` all reference `conversation` directly. **Nothing is
+  broken by it** — `outbox.message_seq` pins the row to a `message`, which pins a `conversation`, so
+  the value can never disagree with its own row. What it costs is diagnosability: a delete of a
+  conversation with undelivered outbox rows now fails at the `outbox.message_seq` constraint, which is
+  stage 3's `ON DELETE NO ACTION` behaving correctly
+  ([0004](../adr/0004-message-durability.md)) but names a constraint nobody will connect to the
+  conversation they deleted. **Not decided:** either add the FK with `ON DELETE CASCADE`, since an
+  outbox row is as disposable as the message it describes, or record in the schema that the
+  denormalisation is deliberate. One of the two, so the next reader does not read it as an oversight.
+- **Erasure cascades nothing because erasure is an `UPDATE`, not because the schema was configured
+  that way.** Four tables cascade from `user` — `account`, `session`, `block` from either column, and
+  `push_subscription` — and [0041](../adr/0041-erasure-is-a-tombstone.md) names two of them.
+  `receipt`, `delivery`, `member`, `message.author_id` and `media.owner_id` are `NO ACTION` and would
+  refuse the delete, which is what keeps a former member's receipts alive. The unaccounted case is the
+  staged deletion 0041 itself contemplates as the reversal: **hard-deleting a tombstone silently drops
+  its `block` rows, and a dropped block stops blocking.** That is behavioural rather than cosmetic, it
+  has no runbook step, and it should be enumerated by name before any staging exists.

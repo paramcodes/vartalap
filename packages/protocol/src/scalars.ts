@@ -27,11 +27,31 @@ export type Seq = z.infer<typeof seq>;
  * A client-generated UUIDv7. This is the Message's identity AND its idempotency
  * key — one value, two jobs. See ADR 0004.
  *
+ * The version is CHECKED, not assumed. `z.string().uuid()` was doing the whole job
+ * and it is not enough: its pattern matches any hex UUID shape without ever
+ * reading the version nibble, so a v4 passed under a message promising a v7 —
+ * and so did `ffff`. Two failures come out of that. A reader who trusts the error
+ * believes they hold a guarantee they never got, and a client that quietly minted
+ * a v4 keeps working right up until something reads the v7 timestamp that only a
+ * v7 has. The custom message is gone rather than reworded: the default "Invalid
+ * uuid" is true, and a message that names the real constraint carries it.
+ *
  * Note what this is NOT used for: ordering. The v7 timestamp is the *client's*
  * clock, clients skew, and RFC 9562's same-millisecond monotonicity is a single-node
- * construct that does not survive a connection pool. Order is `seq`.
+ * construct that does not survive a connection pool. Order is `seq`. That is why
+ * validating the version here is honouring the stated contract and not making the
+ * ordering guarantee safer — nothing about the ordering guarantee reads this.
  */
-export const messageId = z.string().uuid('must be a UUIDv7').brand<'MessageId'>();
+export const messageId = z
+  .string()
+  .uuid()
+  /**
+   * Position 15 of the canonical form is the version nibble:
+   * `xxxxxxxx-xxxx-Mxxx-Nxxx-xxxxxxxxxxxx`. Eight hex, a dash, four hex, a dash,
+   * then M. It is a digit, so there is no case to normalise first.
+   */
+  .refine((value) => value[14] === '7', 'must be a UUIDv7: the version nibble at position 15 must be 7')
+  .brand<'MessageId'>();
 
 export type MessageId = z.infer<typeof messageId>;
 

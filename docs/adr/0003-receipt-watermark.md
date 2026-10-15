@@ -1,9 +1,10 @@
 # 0003. Receipts are a bookmark, not a diary — a per-member watermark, not a log
 
-**Status:** Accepted
+**Status:** Accepted — the watermark decision stands; **two points below are corrected in place** by [0005](0005-message-ordering.md) and [0010](0010-receipt-mechanics.md)
 **Date:** 2026-10-14
 **Resolves:** wayfinder map "vartalap — spec and architecture map", ticket "Read receipts: watermark or append-only log"
 **Feeds:** "Read receipt mechanics: row shape, monotonicity, throttling, and catch-up"
+**Amended by:** [0005](0005-message-ordering.md) — the position is one global column, not a per-conversation one; [0010](0010-receipt-mechanics.md) — a receipt is **two** positions, and **the `Seen` predicate below is over `shared_through`**. Neither reverses anything in this record; both are corrected in place rather than left standing as a line known to be wrong.
 **Blocked by:** "Message ordering and pagination, including the commit-inversion race" — the position type is #7's to settle
 
 ## Context
@@ -20,8 +21,16 @@ They were arguing about **different halves of the same thing**, and both were ha
 
 ```
 Seen under M  ⇔  ∀ m ∈ currentMembers(M), m ≠ me, shares(m):
-                     receipt[m].read_through >= seq(M)
+                     receipt[m].shared_through >= seq(M)
 ```
+
+> **Amended by [0010](0010-receipt-mechanics.md).** This predicate was written over `read_through`,
+> which is the wrong column. [0010](0010-receipt-mechanics.md) replaced one position with two, and
+> **`Seen` is computed over `shared_through`** — because after a member re-enables sharing, their
+> `read_through` is already ahead of where they left it, and broadcasting it reveals the entire gap
+> they spent the time hiding. The three exclusions are 0010's as well: the sender, former members, and
+> members who are not sharing. **Corrected above rather than annotated beside**, because a reader who
+> trusts this record would otherwise build the predicate that leaks.
 
 ## Why the conflict dissolves
 
@@ -62,4 +71,4 @@ This was the strongest argument for the append-only design and it is not a bad o
 
 If vartalap needs read *history* — per-message "read by" with timestamps, or "who had seen this when I followed up" — a watermark is the wrong structure and the receipt table has to be rebuilt. That is cheap now and expensive after the first million rows, which is why it is decided here rather than deferred.
 
-The same applies to `receipt.read_through` carrying no foreign key to `messages`: it points at a *position*, not a row, so deleting a message must not delete the receipt pointing at it. Edit and delete are on the roadmap.
+The same applies to `receipt.read_through` carrying no foreign key to `message`: it points at a *position*, not a row, so deleting a message must not delete the receipt pointing at it. Edit and delete are on the roadmap.
