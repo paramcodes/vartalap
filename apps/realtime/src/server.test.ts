@@ -113,7 +113,10 @@ test('the same request with that cookie is 200 and returns the right user id', a
   expect(cookie).not.toBe('');
   const response = await me({ cookie });
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ userId });
+  const body = (await response.json()) as { userId: string; handle: string; displayName: string };
+  expect(body.userId).toBe(userId);
+  expect(body.handle).toBe(HANDLE);
+  expect(body.displayName).toBe('Spine Tester');
 });
 
 test('that user id is the row Better Auth wrote, not an echo of the cookie', async () => {

@@ -13,9 +13,29 @@
  * rendered as sentences rather than disabled toggles — ADR 0022's rule that a
  * greyed control reads as a promise this build has not kept yet.
  */
+import { useEffect, useState } from 'react';
 import { ThemeToggle } from './theme-toggle.tsx';
 import { SharingToggle } from './sharing-toggle.tsx';
 import type { SharingDeps } from './sharing-toggle.tsx';
+
+/** The signed-in member's own profile fields. */
+export interface Profile {
+  readonly handle: string | null;
+  readonly displayName: string | null;
+}
+
+/**
+ * The production read. Injected so a test never opens a socket.
+ */
+async function fetchProfile(): Promise<Profile | null> {
+  const response = await fetch('/api/me', { credentials: 'include' });
+  if (!response.ok) return null;
+  return (await response.json()) as Profile;
+}
+
+export interface ProfileSectionDeps {
+  readonly readProfile?: (() => Promise<Profile | null>) | undefined;
+}
 
 /**
  * The three switches that must not exist, and the sentence each one earns.
@@ -36,16 +56,57 @@ export const FORBIDDEN_SWITCHES = [
   },
 ] as const;
 
+/**
+ * The profile section — renders what cannot be edited, and says so (ADR 0021).
+ * The handle is set at signup and never changes; it is shown as read-only text,
+ * never as a disabled input (a disabled control reads as a promise unkept).
+ */
+export function ProfileSection({ readProfile = fetchProfile }: ProfileSectionDeps = {}) {
+  const [profile, setProfile] = useState<Profile | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void readProfile().then((next) => {
+      if (!cancelled) setProfile(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [readProfile]);
+
+  return (
+    <section data-kind="profile" className="rounded-2xl bg-card p-3">
+      <h2 className="text-[15px] font-semibold text-ink">Profile</h2>
+      <dl className="mt-2 space-y-2">
+        <div>
+          <dt className="text-[13px] text-ink-faint">Handle</dt>
+          <dd className="text-[15px] text-ink">{profile?.handle ?? '—'}</dd>
+        </div>
+        <div>
+          <dt className="text-[13px] text-ink-faint">Display name</dt>
+          <dd className="text-[15px] text-ink">{profile?.displayName ?? '—'}</dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-[13px] text-ink-faint">
+        Your handle was set when you signed up and does not change.
+      </p>
+    </section>
+  );
+}
+
 export interface SettingsDeps {
   /** Present on the per-conversation settings page; the sharing toggle only then. */
   readonly conversationId?: string;
   readonly sharing?: Pick<SharingDeps, 'readSharing' | 'setSharing'>;
+  /** Injected in tests; production reads `/api/me`. */
+  readonly readProfile?: () => Promise<Profile | null>;
 }
 
-export function SettingsPage({ conversationId, sharing }: SettingsDeps) {
+export function SettingsPage({ conversationId, sharing, readProfile }: SettingsDeps) {
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex w-full max-w-xl flex-col gap-3 p-3">
+        <ProfileSection readProfile={readProfile} />
         <ThemeToggle />
         {conversationId !== undefined && sharing !== undefined && (
           <SharingToggle

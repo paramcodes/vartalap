@@ -58,7 +58,13 @@ export async function handleRequest(request: Request): Promise<Response> {
     }
     const userId = await requireSession(request);
     if (userId === null) return unauthenticated();
-    return json({ userId });
+    const result = await auth.api.getSession({ headers: request.headers });
+    const user = result?.user;
+    return json({
+      userId,
+      handle: user?.username ?? null,
+      displayName: user?.name ?? null,
+    });
   }
 
   // ── the spine. One line per route; each answers `null` for a path it does not own.
