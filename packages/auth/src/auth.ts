@@ -27,6 +27,19 @@
  * Schema validation (new in 1.7.x, on by default in production) reads the Drizzle
  * schema object rather than the database, so it catches config drift and not
  * unapplied migrations. `bun run auth:check` runs the same diff offline.
+ *
+ * ── testability: numbers, not switches ────────────────────────────────────────
+ *
+ * This instance is built at module scope, so any knob that has to change between a
+ * test run and a deployed process must be read at module scope too — an option object
+ * a test mutates after import has already been consumed. Everything below that a test
+ * needs to change is therefore an ENVIRONMENT VARIABLE, and the environment is set by
+ * a `--preload` in the `test` scripts (`packages/auth/src/test-harness.ts`), which Bun
+ * evaluates before any test file and therefore before this one.
+ *
+ * **Nothing here can disable the limiter.** ADR 0043 and the numbers here are the
+ * design; a test that needs twenty sign-ups gets twenty sign-ups through a raised
+ * ceiling, not through a limiter that was switched off.
  */
 import { betterAuth } from 'better-auth/minimal';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
@@ -37,6 +50,55 @@ import * as schema from '@vartalap/database/schema';
 const secret = process.env.BETTER_AUTH_SECRET;
 if (!secret) throw new Error('BETTER_AUTH_SECRET is required');
 if (secret.length < 32) throw new Error('BETTER_AUTH_SECRET must be at least 32 characters');
+
+/**
+ * **A positive integer from the environment, or `undefined`.**
+ *
+ * `Number('')` is `0` and `Number('abc')` is `NaN`, and both are ways for a typo in a
+ * deployment's environment to become a *silently different* rate limit rather than a
+ * startup failure. This returns `undefined` for anything that is not a whole positive
+ * number, so the caller keeps its own default and the bad value is visibly ignored
+ * rather than honoured.
+ */
+function positiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * The sign-up / sign-in ceiling, and the override that lifts it.
+ *
+ * ⚠️ **The `rateLimit` block below does NOT control sign-up, and reading it as though
+ * it does is trap 19 in the decisions index.** Better Auth 1.7.7 ships a hard-coded
+ * special rule — `{ window: 10, max: 3 }` — that it applies to any path starting
+ * `/sign-up`, `/sign-in`, `/change-password` or `/change-email`, and it applies it
+ * AFTER the base rule, overwriting `max: 100`. So the numbers a reader of this file
+ * would assume are guarding sign-up are not, and tightening them changes nothing.
+ *
+ * `customRules` is the only documented lever that is applied last, and this is what it
+ * is for. **`customRules` is undefined unless the override environment is set**, which
+ * is the whole point: with no override the library's own rule applies and production
+ * behaviour is byte-identical to not having this function at all. Writing out
+ * `'/sign-up/*': { window: 10, max: 3 }` by default would PIN the library's numbers, so
+ * a future release that tightened sign-up to 2 would be silently loosened back to 3
+ * by our config — a security regression caused by a config that reads as conservative.
+ *
+ * The test harness (`packages/auth/src/test-harness.ts`) sets the override, and this
+ * instance is built at MODULE SCOPE, so the override has to be in the environment
+ * before this file is evaluated. That is what the preload in the `test` scripts is for.
+ */
+const SIGN_UP_LIMIT_OVERRIDE: { window: number; max: number } | undefined =
+  process.env.AUTH_RATE_LIMIT_SIGN_UP_MAX === undefined &&
+  process.env.AUTH_RATE_LIMIT_SIGN_UP_WINDOW === undefined
+    ? undefined
+    : {
+        // The window default is Better Auth's own special-rule window (10s), not ours,
+        // so setting only the ceiling leaves the shape of the rule alone.
+        window: positiveInt('AUTH_RATE_LIMIT_SIGN_UP_WINDOW', 10),
+        max: positiveInt('AUTH_RATE_LIMIT_SIGN_UP_MAX', 3),
+      };
 
 export const auth = betterAuth({
   appName: 'vartalap',
@@ -103,9 +165,22 @@ export const auth = betterAuth({
     //
     // Note this only limits client-initiated HTTP. `auth.api.*` called server-side
     // is not limited, so the chat endpoints need their own limiter (ADR 0043).
+    //
+    // ADR 0043 exists and this limiter is real; it is never disabled to make a test
+    // pass. Only its NUMBERS are overridable, and only from the environment. See
+    // SIGN_UP_LIMIT_OVERRIDE above for why `max: 100` says nothing about sign-up.
     enabled: true,
-    window: 60,
-    max: 100,
+    window: positiveInt('AUTH_RATE_LIMIT_WINDOW', 60),
+    max: positiveInt('AUTH_RATE_LIMIT_MAX', 100),
+    /**
+     * `undefined` in every environment that does not set the override. See the
+     * comment on SIGN_UP_LIMIT_OVERRIDE for why it is not written out by default.
+     *
+     * `/sign-up/*` rather than `/sign-up`: the library matches its own special rule
+     * with `path.startsWith`, while `customRules` keys are exact or `*`-wildcarded,
+     * and the path it sees is the one relative to `baseURL` — `/sign-up/email`.
+     */
+    customRules: SIGN_UP_LIMIT_OVERRIDE === undefined ? undefined : { '/sign-up/*': SIGN_UP_LIMIT_OVERRIDE },
   },
 
   advanced: {

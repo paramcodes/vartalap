@@ -25,6 +25,7 @@ import { sendBlockReason } from './conversation.ts';
  * | `413`                          | **no**  | `payloadTooLarge`       |
  * | `422`                          | **no**  | `unprocessable`         |
  * | `404` / `405`                  | **no**  | `notFound` / `methodNotAllowed` |
+ * | not a member, on a non-send write | yes  | `notAMember`                   |
  *
  * **A client must be able to make that call without reading a status code**, so
  * retryability is a field, not a lookup table it has to mirror. It is a `z.literal`
@@ -112,6 +113,21 @@ export const errorBody = z.discriminatedUnion('code', [
      */
     reason: sendBlockReason,
   }),
+
+  /**
+   * Not a member of the conversation — for a write that is not a send.
+   *
+   * `sendBlocked` is the right answer for a SEND and the wrong answer everywhere
+   * else: its name promises a lock, and a receipt advance is refused because the
+   * caller was never in the conversation. Naming it honestly costs one branch and
+   * saves a client from rendering "you are blocked" for a stranger's conversation.
+   *
+   * Retryable, for `sendBlocked`'s reason: being added to a conversation happens
+   * without the member doing anything, so these identical bytes could plausibly
+   * succeed later. Stage 3.E: a receipt or a delivery ack for a conversation you
+   * are not in is refused, and this is what it answers.
+   */
+  z.object({ code: z.literal('notAMember'), message, retryable: z.literal(true) }),
 
   // ── terminal ───────────────────────────────────────────────────────────────
   // Retrying identical bytes reaches an identical answer, forever, and no amount of

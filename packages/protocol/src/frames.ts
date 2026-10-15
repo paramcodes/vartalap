@@ -101,6 +101,13 @@ export const serverFrame = z.discriminatedUnion('type', [
   z.object({ type: z.literal('message.created'), conversationId, message }),
   z.object({ type: z.literal('message.ack'), conversationId, messageId, seq }),
   z.object({ type: z.literal('receipt.advanced'), conversationId, userId, readThrough: seq, sharedThrough: seq }),
+  /**
+   * A delivery advancement, fanned out like a receipt. The server shape carries
+   * `userId` the way `receipt.advanced` does — whose delivery moved is the fact —
+   * and `seq` is the STORED `delivered_through`, never the reported one, because a
+   * frame must say what the watermark IS rather than what one client claimed.
+   */
+  z.object({ type: z.literal('delivery.acked'), conversationId, userId, seq }),
   z.object({ type: z.literal('presence.changed'), userId, online: z.boolean() }),
   z.object({ type: z.literal('typing.started'), conversationId, userId, at: z.number().int().nonnegative() }),
   z.object({ type: z.literal('typing.stopped'), conversationId, userId }),
@@ -291,6 +298,68 @@ export const receiptAdvanceRequest = z.object({
 });
 
 export type ReceiptAdvanceRequest = z.infer<typeof receiptAdvanceRequest>;
+
+/**
+ * The answers to the two writes, and the settings write that gates one of them.
+ *
+ * All three are `pick`ed off {@link receipt} and {@link delivery} rather than
+ * restated. That is the whole reason to pick: a hand-written copy of the same
+ * three fields is a second definition of what a Receipt *is*, and the two copies
+ * would drift the moment somebody adds a column.
+ *
+ * **The advance answers with what was STORED, not with what was asked for.** That
+ * is not politeness — it is the only honest answer in the case that matters. A
+ * client whose `shared_through` was refused because sharing was off must learn
+ * that the stored position is still where it was frozen, or it keeps its own
+ * watermark at the value it reported and every later `Seen` it renders is wrong.
+ */
+export const receiptAdvanceResponse = receipt.pick({
+  conversationId: true,
+  userId: true,
+  readThrough: true,
+  sharedThrough: true,
+});
+
+export type ReceiptAdvanceResponse = z.infer<typeof receiptAdvanceResponse>;
+
+/** Delivery's answer, and the same rule: the stored position, never the request's. */
+export const deliveryAckResponse = delivery.pick({
+  conversationId: true,
+  userId: true,
+  deliveredThrough: true,
+});
+
+export type DeliveryAckResponse = z.infer<typeof deliveryAckResponse>;
+
+/**
+ * `sharing` alone, on its own transport.
+ *
+ * ADR 0022 puts a privacy change on a `POST` its author alone sees, and ADR 0059
+ * says plainly that `sharing` is **not** a field on the advance body. This is that
+ * separate write — and the reason it is separate is not hygiene: `shared_through`
+ * freezes while sharing is off, so the flag has to be able to change WITHOUT a
+ * position moving. One body carrying both would let an advance turn sharing back
+ * on and disclose the gap in the same breath.
+ */
+export const receiptSharingRequest = z.object({
+  conversationId,
+  sharing: z.boolean(),
+});
+
+export type ReceiptSharingRequest = z.infer<typeof receiptSharingRequest>;
+
+/**
+ * The flag and nothing else. Deliberately carries no position, so a response to a
+ * settings write can never be mistaken for an advance — turning sharing back on
+ * must move nothing, and a body carrying `read_through` would invite exactly that.
+ */
+export const receiptSharingResponse = receipt.pick({
+  conversationId: true,
+  userId: true,
+  sharing: true,
+});
+
+export type ReceiptSharingResponse = z.infer<typeof receiptSharingResponse>;
 
 export const directConversationRequest = z.object({
   /** The other member's Handle. Normalized before lookup. */

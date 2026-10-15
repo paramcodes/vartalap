@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "typecheck": "bun run --filter='*' typecheck",
-    "test": "bun test --preload ./packages/database/src/test-harness.ts",
+    "test": "bun test --preload ./packages/auth/src/test-harness.ts --preload ./packages/database/src/test-harness.ts --preload ./apps/web/src/testing/fake-indexeddb.ts",
     "db:generate": "bun run --env-file=.env --filter=@vartalap/database generate",
     "db:migrate": "bun run --env-file=.env --filter=@vartalap/database migrate",
     "db:push": "bun run --env-file=.env --filter=@vartalap/database push",

@@ -53,21 +53,23 @@
  * publishes `payload` VERBATIM (ADR 0057), so "what the relay sends" and "what the
  * protocol says a frame is" cannot drift: there is one object, validated once,
  * round-tripped through `jsonb`.
+ *
+ * The row → wire conversion itself is in `message-wire.ts`, because the read path
+ * needs the same one and two copies of it is two places where the wire shape of a
+ * Message is decided.
  */
-import { and, eq, isNull, sql as drizzleSql } from 'drizzle-orm';
-import { conversation, db, member, message, outbox } from '@vartalap/database';
+import { eq, sql as drizzleSql } from 'drizzle-orm';
+import { conversation, db, message, outbox } from '@vartalap/database';
 import {
   conversationId as conversationIdScalar,
-  message as messageWire,
-  messageId as messageIdScalar,
-  seqFromBigInt,
   serverFrame,
-  userId as userIdScalar,
   type Attachment,
   type Message,
   type SendConflictField,
   type SendMessageRequest,
 } from '@vartalap/protocol';
+import { isCurrentMember } from './membership.ts';
+import { toWireMessage, type StoredMessage } from './message-wire.ts';
 
 /**
  * SQLSTATE for a unique violation. Not sufficient on its own — see
@@ -98,23 +100,6 @@ export type SendOutcome =
   | { readonly kind: 'attachmentsUnsupported' };
 
 /**
- * The one row shape this path reads and writes.
- *
- * `seq` is a `bigint`, so it crosses to JavaScript as a number from Drizzle and
- * back to the wire as a DECIMAL STRING (ADR 0005 / `scalars.ts`). It is never
- * rendered as a number anywhere on the way out.
- */
-interface StoredMessage {
-  readonly id: string;
-  readonly conversationId: string;
-  readonly authorId: string;
-  readonly body: string;
-  readonly seq: number;
-  /** The CLIENT's clock — the wire's `createdAt`, and never a sort key. */
-  readonly clientCreatedAt: Date;
-}
-
-/**
  * Canonical form for attachments, and the comparison ADR 0059 is built on.
  *
  * Ordered by `mediaId`, duplicates collapsed. Two clients that picked the same
@@ -139,23 +124,6 @@ export function canonicalAttachments(attachments: readonly Attachment[]): Attach
     if (!byMediaId.has(attachment.mediaId)) byMediaId.set(attachment.mediaId, attachment);
   }
   return [...byMediaId.values()].sort((a, b) => (a.mediaId < b.mediaId ? -1 : a.mediaId > b.mediaId ? 1 : 0));
-}
-
-/**
- * The row as the wire wants it. Parsed through `message.parse`, so a field this
- * file gets wrong is a failed request rather than a body a client has to guess at.
- */
-function toWireMessage(row: StoredMessage, attachments: readonly Attachment[] = []): Message {
-  return messageWire.parse({
-    id: messageIdScalar.parse(row.id),
-    conversationId: conversationIdScalar.parse(row.conversationId),
-    authorId: userIdScalar.parse(row.authorId),
-    body: row.body,
-    attachments: canonicalAttachments(attachments),
-    // Never null here: a row read back from the database has been assigned one.
-    seq: seqFromBigInt(BigInt(row.seq)),
-    createdAt: row.clientCreatedAt.toISOString(),
-  });
 }
 
 /** Read the stored row fresh. `null` when this idempotency key was never used. */
@@ -230,24 +198,16 @@ export async function sendMessage(command: SendCommand): Promise<SendOutcome> {
   // request's validity, because there is no reason to tell a non-member that their
   // attachments are the wrong shape.
   //
-  // ADR 0007 puts the "can this user send" predicate in the application, once;
-  // this is that one call site for now. Blocks are stage 5 and are NOT implemented
-  // — the reason enum still carries them because the envelope names a
-  // `sendBlockReason` the composer already renders.
-  const memberships = await db
-    .select({ conversationId: member.conversationId })
-    .from(member)
-    .where(
-      and(
-        eq(member.conversationId, request.conversationId),
-        eq(member.userId, authorId),
-        // A Former member remains a row and remains a member for history. They
-        // are not an active member and do not send.
-        isNull(member.leftAt),
-      ),
-    )
-    .limit(1);
-  if (memberships.length === 0) return { kind: 'notAMember' };
+  // ADR 0007 puts the "can this user send" predicate in the application, once, and
+  // `isCurrentMember` IS that one copy. Stage 3.E added the receipt and delivery
+  // paths, and they ask the same question of the same row; three hand-written
+  // `member` queries would be three predicates, and the one somebody eventually
+  // relaxes is the one that lets a watermark be written into a conversation the
+  // caller was never in.
+  //
+  // Blocks are stage 5 and are NOT implemented — the reason enum still carries
+  // them because the envelope names a `sendBlockReason` the composer renders.
+  if (!(await isCurrentMember(request.conversationId, authorId))) return { kind: 'notAMember' };
 
   // `message-lifecycle.md` says the media seam exists and does not cross it, and
   // this is where that is enforced rather than assumed. A `422`, not a silent

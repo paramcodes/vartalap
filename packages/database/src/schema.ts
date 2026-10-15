@@ -380,21 +380,44 @@ export const messageAttachment = pgTable(
  * the delete is refused while a row is outstanding. It differs from `RESTRICT` only in
  * deferrability, and the non-deferrable form is the one that fails at the statement
  * rather than at `COMMIT`.
+ *
+ * ── `message_seq` is NULLABLE, and `conversation_id` is the routing column ──────
+ *
+ * This table carries more than messages. ADR 0003 says receipt updates "arrive as
+ * ephemeral deltas — one event per advance, exactly as the outbox already delivers
+ * everything else", and ADR 0011 says "the outbox row is the only thing fan-out and
+ * push share". Both need a row, and a receipt advance or a delivery ack has **no
+ * message `seq`** — there is no message to point at. With `NOT NULL` those two frames
+ * simply could not be written, so the outbox delivered messages and nothing else.
+ *
+ * **The fan-out target is always the conversation.** `message.created`,
+ * `receipt.advanced` and the delivery acks all go to a conversation's current members,
+ * so the `NOT NULL` `conversation_id` below routes every one of them. `message_seq` is
+ * the ordering aid for the frames that HAVE a position, and it stays an FK: a row that
+ * carries a position still cannot name a message that does not exist. It is now
+ * *possibly absent* rather than *always present*.
+ *
+ * The relay reads it as nullable and says so; nothing may re-add `NOT NULL` on the
+ * strength of "the send path is the only writer of `message.created`" — that is an
+ * argument about today, and the next frame type arrives from a different writer.
  */
 export const outbox = pgTable(
   'outbox',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     /**
-     * The message this publishes. Carries `seq`, which is why ordering comes first.
+     * The message this publishes, when it publishes a message. Carries `seq`, which is
+     * why ordering comes first — and NULL for every frame that is not about a
+     * message. See the table comment above before adding one.
      *
      * `onDelete: 'no action'` is WRITTEN rather than omitted: Drizzle's default is
      * already `no action`, and this column was `cascade` once. Spelling it out is what
      * stops the next reader from "tidying" it back.
      */
-    messageSeq: bigint('message_seq', { mode: 'number' })
-      .notNull()
-      .references(() => message.seq, { onDelete: 'no action' }),
+    messageSeq: bigint('message_seq', { mode: 'number' }).references(() => message.seq, {
+      onDelete: 'no action',
+    }),
+    /** The routing column, and the one that is `NOT NULL` for every frame type. */
     conversationId: uuid('conversation_id').notNull(),
     payload: jsonb('payload').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -409,6 +432,38 @@ export const outbox = pgTable(
     // partial index serves the 24h purge, which is also "unpublished rows, oldest
     // first" with a `created_at` cutoff — so the purge needs no index of its own.
     index('outbox_unpublished_idx').on(t.createdAt).where(sql`${t.publishedAt} IS NULL`),
+    /**
+     * **A `message.created` frame with no `message_seq` is IMPOSSIBLE, not unlikely.**
+     *
+     * Nullable is a promise, and this is the half that keeps it. The send path is
+     * today the only writer of `message.created`, so a missing check would be a
+     * promise kept by inspection — and the failure it hides is not cosmetic: the relay
+     * would broadcast a `message.created` with `messageSeq: null`, the client would
+     * have a frame it cannot place, and the row would be marked `published_at`, so
+     * the outbox would have recorded a delivery of a frame nobody could use.
+     *
+     * **Why this is not ADR 0010's forbidden `CHECK`.** 0010 line 68 dropped
+     * `receipt_shared_le_read` because "the invariant is about *how* a row is
+     * written, not what a single row contains" — and that is exactly right for
+     * `read_through >= shared_through`: its truth depends on WHICH write produced the
+     * row, `read_through` legitimately runs ahead of `shared_through` whenever sharing
+     * is off (ADR 0058), and a backfill or a repair can hold both columns
+     * legitimately. There is no ordering of writes that violates this one: `payload`
+     * and `message_seq` are two encodings of the SAME fact, so a row that says
+     * "`message.created`, at no position" is malformed in itself and no writer — the
+     * send path, a migration, or a repair — can produce a valid row that breaks it.
+     * A well-formedness rule, not a write-order invariant.
+     *
+     * A payload with no `type` key makes `payload->>'type' <> 'message.created'`
+     * NULL rather than true, and a `CHECK` passes on NULL. That is deliberate: such a
+     * row is caught by `serverFrame.parse` in the relay and recorded as a failed
+     * attempt with the parse error in `last_error`, which is a louder answer than a
+     * constraint the writer could not have known about.
+     */
+    check(
+      'outbox_message_created_needs_message_seq',
+      sql`${t.messageSeq} IS NOT NULL OR ${t.payload}->>'type' <> 'message.created'`,
+    ),
   ],
 );
 

@@ -81,6 +81,9 @@ unpublished, attempts = 0          → a fresh send; never purge on age alone
 
 ## Consequences
 
+- **Three paths write outbox rows, and each writes in the same transaction as the state it broadcasts.** The send path writes `message.created` with its `message_seq`; `advanceReceipt` writes `receipt.advanced` and `acknowledgeDelivery` writes `delivery.acked`, both with `message_seq` NULL — which is what migration 0007's nullability and the `outbox_message_created_needs_message_seq` CHECK exist to allow. A stored watermark nobody is told about is a `Seen` that never renders; a broadcast watermark nobody stored is a frame a catch-up cannot reproduce. The two commit together or neither does.
+- **A no-op advance writes nothing.** An advance that re-reports a position `GREATEST` refused leaves the stored row unmoved, and the write paths compare before against after and skip the insert. Without that rule every duplicate frame arrival — a second tab, a retried ack — would manufacture a broadcast for a watermark that did not change, and the outbox would fill with noise the relay is obliged to publish. At-least-once tolerates a duplicate it did not manufacture; it must not manufacture them.
+
 - **Two relays can run, and one can be replaced mid-flight.** Running a second relay needs no coordination, no leader election, and no fencing token.
 - **A relay killed mid-batch re-delivers the remainder of that batch.** Up to 100 frames. Every one of them is a duplicate the client already handles, and every one of them is cheaper than the alternative of a hole.
 - **`attempts` and `last_error` are the only diagnostic a permanently-broken row ever gets**, and H-18's 24-hour window is now a number a query can express rather than a rule somebody has to remember.

@@ -16,6 +16,10 @@
 import { auth } from '@vartalap/auth';
 import { fail, json, notFound, unauthenticated } from './http.ts';
 import { requireSession } from './session.ts';
+import { handleCatchUp } from './spine/catch-up-route.ts';
+import { handleDeliveryAck } from './spine/delivery-route.ts';
+import { handleHistory } from './spine/history-route.ts';
+import { handleReceiptAdvance, handleReceiptSharing } from './spine/receipt-route.ts';
 import { handleSendMessage } from './spine/send-route.ts';
 
 /**
@@ -53,8 +57,23 @@ export async function handleRequest(request: Request): Promise<Response> {
   }
 
   // ── the spine. One line per route; each answers `null` for a path it does not own.
+  const history = await handleHistory(request, pathname);
+  if (history !== null) return history;
+
+  const catchUp = await handleCatchUp(request, pathname);
+  if (catchUp !== null) return catchUp;
+
   const sent = await handleSendMessage(request, pathname);
   if (sent !== null) return sent;
+
+  const advanced = await handleReceiptAdvance(request, pathname);
+  if (advanced !== null) return advanced;
+
+  const shared = await handleReceiptSharing(request, pathname);
+  if (shared !== null) return shared;
+
+  const acknowledged = await handleDeliveryAck(request, pathname);
+  if (acknowledged !== null) return acknowledged;
 
   return notFound(pathname);
 }

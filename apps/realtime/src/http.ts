@@ -52,3 +52,42 @@ export function methodNotAllowed(method: string): Response {
 export function notFound(pathname: string): Response {
   return fail({ code: 'notFound', message: `no route for ${pathname}`, retryable: false }, 404);
 }
+
+/**
+ * `403` for a caller who is not a current member of the conversation.
+ *
+ * **Not `sendBlocked`,** which is the send path's answer and promises a lock — see
+ * the envelope branch. Not `404` either, which would hide the conversation from a
+ * member who is about to be added to it and would make the client retry forever
+ * against a conversation that does exist.
+ */
+export function notAMember(): Response {
+  return fail(
+    {
+      code: 'notAMember',
+      message: 'you are not a member of this conversation',
+      // Being added is something that happens without the caller doing anything, so
+      // these identical bytes could plausibly succeed later.
+      retryable: true,
+    },
+    403,
+  );
+}
+
+/**
+ * The `400`, with per-field detail — the shape the composer's `Not sent` strip and
+ * a client's "fix this query" both read.
+ *
+ * It lives here rather than in each route because three routes now refuse a bad
+ * request, and three copies of a status code paired with an envelope is three
+ * places for the two to drift apart. `fields` is never empty: a JSON parse failure
+ * names the body, a schema failure has at least one issue behind it, and a
+ * cross-field rule names the field it is about.
+ *
+ * `message` is per route on purpose — each endpoint's copy is its own, and a shared
+ * default would quietly rewrite the send route's wording the day somebody edited
+ * this.
+ */
+export function invalidRequest(fields: { path: string; message: string }[], message: string): Response {
+  return fail({ code: 'invalidRequest', message, retryable: false, fields }, 400);
+}

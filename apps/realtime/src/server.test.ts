@@ -11,6 +11,11 @@
  * `DATABASE_URL` at module scope and throws without it; the harness sets it
  * before any other module is evaluated, and ESM evaluates imports in the order
  * they are written.
+ *
+ * It also **guards the sign-up budget**, at the bottom: the test named "the sign-up
+ * budget for a test run is not three" is what guarantees the auth preload ran before
+ * `@vartalap/auth` was evaluated. See `packages/auth/src/test-harness.ts` for why that
+ * ordering cannot be guaranteed by a comment.
  */
 import { afterAll, expect, test } from 'bun:test';
 import { errorEnvelope } from '@vartalap/protocol';
@@ -117,6 +122,57 @@ test('that user id is the row Better Auth wrote, not an echo of the cookie', asy
     SELECT id, username FROM "user" WHERE id = ${userId}`;
   expect(rows).toHaveLength(1);
   expect(rows[0]!.username).toBe(HANDLE);
+});
+
+/**
+ * ⚠️ **This test is the guarantee that the auth preload ran.** Read it as infrastructure
+ * rather than as a duplicate of the sign-up test above.
+ *
+ * Better Auth 1.7.7 hard-codes `{ window: 10, max: 3 }` for any path starting
+ * `/sign-up`, applies it AFTER `rateLimit.max` — so the repository's `max: 100` never
+ * governed sign-up — and keys the bucket by client IP, which `bun test` cannot resolve,
+ * so every test file shares one bucket (decisions index, traps 17 and 19).
+ *
+ * **Measured on this machine: three sign-ups in one window, then `429` for the rest of
+ * the run.** Four test files each sign up once, so the suite was one request away from
+ * a failure that had nothing to do with what those files test.
+ *
+ * `packages/auth/src/test-harness.ts` raises the ceiling through `customRules`, and
+ * `packages/auth/src/auth.ts` reads that variable at MODULE SCOPE — so the raise only
+ * happens if the preload was evaluated first. Drop the preload from a `test` script,
+ * reorder it behind an import of `@vartalap/auth`, rename the variable in one place, or
+ * let `.env` shadow it, and the fourth request below is a `429`.
+ *
+ * **Eleven sign-ups, not four.** Four would pass by accident: two of the four would come
+ * from files running more than the 10-second window apart. Eleven inside one test cannot.
+ */
+test('the sign-up budget for a test run is not three — the limiter is raised, not removed', async () => {
+  const statuses: number[] = [];
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    const handle = `budget${attempt}x${crypto.randomUUID().replaceAll('-', '').slice(0, 8)}`;
+    const response = await fetch(`${origin}/api/auth/sign-up/email`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Budget',
+        username: handle,
+        email: `${handle}@example.test`,
+        password: PASSWORD,
+      }),
+    });
+    statuses.push(response.status);
+    // The bodies on a failure, because "expected 429 got 200" eleven times says nothing
+    // about WHICH of the two things went wrong.
+    if (!response.ok) statuses.push(Number(response.headers.get('x-retry-after') ?? -1));
+  }
+
+  expect(statuses.filter((status) => status >= 400)).toEqual([]);
+  expect(statuses).toHaveLength(11);
+
+  // And they really are users: a raised ceiling that answered `200` without writing
+  // would satisfy the assertion above and prove nothing about the harness.
+  const rows = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM "user" WHERE name = 'Budget'`;
+  expect(rows[0]!.n).toBe('11');
 });
 
 afterAll(() => {

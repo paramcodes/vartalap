@@ -153,8 +153,23 @@ export const renderedMessageState = z.enum([
 export type RenderedMessageState = z.infer<typeof renderedMessageState>;
 
 export interface MessageStateInput {
-  /** The row's stored state. */
-  state: MessageState;
+  /**
+   * The row's stored state, or `null`.
+   *
+   * ⚠️ **`null` is the positioned row**, and it was added by ADR 0061 when the
+   * client data layer turned this function into a library rather than a
+   * description. The enum above is the set of states a browser can know *before
+   * the server has answered*; once the server HAS answered there is nothing left
+   * to know locally, and a row that carries a position has to be able to say so.
+   * Withholding it forced one of two lies — either a committed row kept a stale
+   * `'queued'`, which puts a message nobody should send back into the send queue,
+   * or every caller invented a value to satisfy the type.
+   *
+   * `null` is safe as an input rather than a lie because this function checks
+   * `position` before `state`: a row with `state: null` always has one, so the
+   * `state === 'inFlight' ? … : 'queued'` branch below is unreachable for it.
+   */
+  state: MessageState | null;
   /** The row's `seq`, or null while the server has not assigned one. */
   position: Seq | null;
   /**

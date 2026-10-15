@@ -9,7 +9,7 @@
   "scripts": {
     "start": "bun run src/server.ts",
     "dev": "bun --watch run src/server.ts",
-    "test": "bun test --preload ../../packages/database/src/test-harness.ts",
+    "test": "bun test --preload ../../packages/auth/src/test-harness.ts --preload ../../packages/database/src/test-harness.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

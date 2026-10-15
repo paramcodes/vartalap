@@ -23,7 +23,7 @@ import {
   sendMessageResponse,
   type SendMessageRequest,
 } from '@vartalap/protocol';
-import { fail, json, methodNotAllowed, unauthenticated } from '../http.ts';
+import { fail, invalidRequest, json, methodNotAllowed, unauthenticated } from '../http.ts';
 import { requireSession } from '../session.ts';
 import { sendMessage } from './send.ts';
 
@@ -33,6 +33,9 @@ import { sendMessage } from './send.ts';
  * second place where routing is defined, for one segment.
  */
 const ROUTE = /^\/api\/conversations\/([^/]+)\/messages$/;
+
+/** This endpoint's own wording for a `400`. See `invalidRequest` in `http.ts`. */
+const NOT_VALID = 'the send request is not valid';
 
 export async function handleSendMessage(request: Request, pathname: string): Promise<Response | null> {
   const match = ROUTE.exec(pathname);
@@ -54,7 +57,7 @@ export async function handleSendMessage(request: Request, pathname: string): Pro
   try {
     raw = await request.json();
   } catch {
-    return invalidRequest([{ path: '', message: 'the body must be JSON' }]);
+    return invalidRequest([{ path: '', message: 'the body must be JSON' }], NOT_VALID);
   }
 
   const parsed = sendMessageRequest.safeParse(raw);
@@ -62,7 +65,7 @@ export async function handleSendMessage(request: Request, pathname: string): Pro
     return invalidRequest(parsed.error.issues.map((issue) => ({
       path: issue.path.join('.'),
       message: issue.message,
-    })));
+    })), NOT_VALID);
   }
   const body: SendMessageRequest = parsed.data;
 
@@ -78,7 +81,7 @@ export async function handleSendMessage(request: Request, pathname: string): Pro
   if (String(body.conversationId).toLowerCase() !== pathConversation.data) {
     return invalidRequest([
       { path: 'conversationId', message: 'must match the conversation in the path' },
-    ]);
+    ], NOT_VALID);
   }
 
   const outcome = await sendMessage({ authorId, request: body });
@@ -128,21 +131,4 @@ export async function handleSendMessage(request: Request, pathname: string): Pro
         422,
       );
   }
-}
-
-/**
- * `400` with per-field detail, which is what the composer's `Not sent` strip
- * reads. `fields` is never empty: a JSON parse failure names the body, and a
- * schema failure has at least one issue behind it.
- */
-function invalidRequest(fields: { path: string; message: string }[]): Response {
-  return fail(
-    {
-      code: 'invalidRequest',
-      message: 'the send request is not valid',
-      retryable: false,
-      fields,
-    },
-    400,
-  );
 }

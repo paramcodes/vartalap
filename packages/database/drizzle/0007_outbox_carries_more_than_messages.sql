@@ -1,0 +1,72 @@
+-- Stage 3 — the outbox has to carry more than messages.
+--
+-- Hand-written prose around the generator's DDL, exactly as `0006_reconciliation.sql`
+-- is: `drizzle-kit generate` against `src/schema.ts` produced the two statements
+-- below and they are kept verbatim. The prose is the deliverable; the DDL is the
+-- generator's, which is what keeps the two from drifting.
+--
+-- ── 1. outbox.message_seq: NOT NULL -> NULLABLE ───────────────────────────────
+--
+-- ADR 0003: receipt updates "arrive as ephemeral deltas — one event per advance,
+-- exactly as the outbox already delivers everything else". ADR 0011: "the outbox row
+-- is the only thing fan-out and push share."
+--
+-- Both are only true if the outbox CAN hold those rows, and it could not. A receipt
+-- advance and a delivery ack have no message `seq` — there is no message to point at —
+-- and `message_seq` was `NOT NULL REFERENCES message(seq)`. So a receipt advance
+-- wrote no outbox row and broadcast nothing. Stage 3.E shipped the write path and
+-- stage 3.F shipped the reader, and the table they share could not express either.
+--
+-- **The fan-out target is always the conversation.** `message.created`,
+-- `receipt.advanced` and the delivery acks all go to a conversation's current members,
+-- so `conversation_id` — already `NOT NULL` — routes every one of them. `message_seq`
+-- is the ORDERING aid for the frames that have a position, and it stays a foreign key:
+-- a row that carries a position still cannot name a message that does not exist. It is
+-- now *possibly absent* rather than *always present*.
+--
+-- The FK is otherwise untouched — still `ON DELETE NO ACTION`, for 0006's reason. A
+-- nullable FK with `NO ACTION` still refuses to delete a message that an undelivered
+-- row points at, and a null row simply never points at anything.
+--
+-- This is safe against existing data in the strongest possible sense: every row already
+-- in the table has a non-null `message_seq`, because the column would not accept
+-- otherwise. `DROP NOT NULL` cannot fail and loses nothing.
+--
+-- ── 2. CHECK (message_seq IS NOT NULL OR payload->>'type' <> 'message.created') ──
+--
+-- Nullable is a promise, and this is the half that keeps it. The send path is the only
+-- writer of `message.created` TODAY, so without the constraint the promise would be
+-- kept by inspection — and the failure it hides is not cosmetic: the relay would
+-- broadcast a `message.created` whose `SinkContext.messageSeq` is `null`, the row would
+-- be marked `published_at`, and the outbox would have recorded a delivery of a frame
+-- its own routing cannot place.
+--
+-- ⚠️ **This is not ADR 0010's forbidden `CHECK`.** Line 68 dropped
+-- `receipt_shared_le_read` because "the invariant is about *how* a row is written, not
+-- what a single row contains", and that is exactly right for
+-- `read_through >= shared_through`:
+--
+--   - its truth depends on WHICH write produced the row, not on the row alone;
+--   - `read_through` legitimately runs AHEAD of `shared_through` for as long as
+--     sharing is off (ADR 0058) — so the two columns are not even meant to agree;
+--   - a backfill, an erasure tombstone or a repair may hold both columns legitimately,
+--     and the constraint would make each of those need `SET CONSTRAINTS` or
+--     `DROP CONSTRAINT`.
+--
+-- No ordering of writes can break THIS one, because `payload` and `message_seq` are
+-- two encodings of the same fact rather than two facts with a relationship between
+-- them. "`message.created`, at no position" is malformed in itself: it is a row that
+-- cannot be written by the send path, cannot be produced by a backfill, and cannot be
+-- justified by any repair. That is a well-formedness rule, not a write-order invariant,
+-- and it is exactly the kind of constraint a column's meaning can carry without a
+-- second mechanism to maintain.
+--
+-- A payload with no `type` key makes the second operand NULL rather than true, and a
+-- `CHECK` passes on NULL. That is deliberate and is the more useful answer: such a row
+-- is caught by `serverFrame.parse` inside the relay and recorded as a FAILED attempt
+-- with the parse error in `last_error`, which is loud and diagnosable — whereas a
+-- constraint would have refused the write at a point with no idea what the writer was
+-- trying to do.
+
+ALTER TABLE "outbox" ALTER COLUMN "message_seq" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "outbox" ADD CONSTRAINT "outbox_message_created_needs_message_seq" CHECK ("outbox"."message_seq" IS NOT NULL OR "outbox"."payload"->>'type' <> 'message.created');

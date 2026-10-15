@@ -365,4 +365,20 @@ describe('stored state versus rendered state', () => {
     // known would be the protocol claiming a request is open when it has closed.
     expect(deriveRenderedMessageState({ ...at('40', null, null), state: 'inFlight' })).toBe('sent');
   });
+
+  test('a positioned row stores NO state, and that is not a fourth state', () => {
+    // ADR 0061. The stored enum is the set of things a browser can know before
+    // the server answers; once a position exists there is nothing left to know
+    // locally, and a row has to be able to say so without inventing a value.
+    //
+    // The alternative was a committed row carrying a stale `'queued'` — which
+    // puts a message nobody should send back into the send queue, because the
+    // send queue IS `messages where state = 'queued'`.
+    expect(deriveRenderedMessageState({ ...at('40', null, null), state: null })).toBe('sent');
+    expect(deriveRenderedMessageState({ ...at('40', '40', '40'), state: null })).toBe('read');
+
+    // And the enum itself is unchanged: three values, none of which is `sent`.
+    expect(messageState.options).toEqual(['queued', 'inFlight', 'failed']);
+    expect(messageState.safeParse(null).success).toBe(false);
+  });
 });

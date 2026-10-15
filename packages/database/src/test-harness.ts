@@ -21,8 +21,9 @@
  *    server, exactly the way `scripts/db-local.ts` does, so `drizzle-kit` and
  *    `postgres.js` both speak ordinary `postgres://` and nothing downstream knows
  *    it is WASM. It is a SEPARATE database from the development one; see below.
- * 3. Runs the real `drizzle-kit migrate` when the database has no tables, so the
- *    fixture cannot drift from what deploy runs.
+ * 3. Runs the real `drizzle-kit migrate`, ALWAYS, so the fixture cannot drift from
+ *    what deploy runs. See the warning below — this used to be "when the database has
+ *    no tables", and that was a trap.
  *
  * ── ⚠ it is `TEST_DATABASE_URL`, not `DATABASE_URL` ─────────────────────────
  *
@@ -69,7 +70,7 @@
  * this file, that is a bug.
  */
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import postgres from 'postgres';
 
 export type TestDatabaseKind = 'pglite' | 'postgres';
@@ -125,6 +126,14 @@ async function openPGlite(): Promise<() => Promise<void>> {
   // wholesale leaves the parent missing and the next boot fails with ENOENT.
   await mkdir(DOT_DB_DIR, { recursive: true });
 
+  // A killed run leaves `postmaster.pid` behind, and the next boot refuses to
+  // start on top of it — so `bun run test` is not re-runnable back to back.
+  // `boot()` has already established that nothing is LISTENING on the port (if
+  // something were, it would have been reused), so a pid file here is stale by
+  // definition. Removing a live one would be the opposite of safe, which is why
+  // this lives here and not at the top of the module.
+  await rm(new URL(`${PGLITE_DATA_DIR}/postmaster.pid`, 'file:'), { force: true });
+
   const pg = await PGlite.create({ extensions: { pg_trgm, pgcrypto }, dataDir: PGLITE_DATA_DIR });
   const server = new PGLiteSocketServer({ db: pg, port: PGLITE_PORT, host: PGLITE_HOST });
   await server.start();
@@ -148,14 +157,6 @@ async function withClient<T>(url: string, fn: (client: postgres.Sql) => Promise<
   } finally {
     await client.end({ timeout: 2 }).catch(() => {});
   }
-}
-
-async function isEmpty(url: string): Promise<boolean> {
-  return withClient(url, async (client) => {
-    const rows = await client<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'`;
-    return rows[0]!.n === 0;
-  });
 }
 
 async function boot(): Promise<{
@@ -197,15 +198,30 @@ async function migrate(url: string): Promise<void> {
 const booted = await boot();
 
 /**
- * Migrate BEFORE the application singleton exists.
+ * Migrate BEFORE the application singleton exists, and **unconditionally**.
  *
  * The ordering is load-bearing and the bug it fixes was real: the first version
  * imported `src/index.ts`, asked it whether the database had any tables, and only
  * then spawned `drizzle-kit migrate` — so the parent was holding PGlite's single
  * client slot while the migration child tried to connect, and the child died with
- * `ECONNRESET`. A short-lived probe connection that is closed again costs nothing.
+ * `ECONNRESET`. A short-lived probe connection that is closed again costs nothing,
+ * and the singleton is still imported after this line.
+ *
+ * ⚠️ **The "only when empty" condition was a second, quieter version of that bug.**
+ * `drizzle-kit migrate` is idempotent — it reads `drizzle.__drizzle_migrations` and
+ * applies only what is absent — so gating it on an empty database bought nothing and
+ * cost the one property the fixture exists for. The data directory is a PERSISTENT
+ * `.db/pglite-test`, so a developer who had never wiped it kept running a suite
+ * against whatever schema they happened to migrate weeks earlier. That is how
+ * `0007` (which made `outbox.message_seq` nullable) could be written, committed, and
+ * then be missing from a database every test in the repo talks to: the suite failed
+ * with a column-not-null violation that had nothing to do with the code under test.
+ *
+ * **The cost is one short-lived child process per `bun test` invocation**, which is
+ * roughly a second. A fixture that can silently test the wrong schema is worth more
+ * than that, and `reset()` below still throws if the migration did not produce tables.
  */
-if (await isEmpty(booted.url)) await migrate(booted.url);
+await migrate(booted.url);
 
 /**
  * Set BEFORE the dynamic import below. `src/index.ts` reads this at module scope
