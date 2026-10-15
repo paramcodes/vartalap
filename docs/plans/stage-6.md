@@ -103,7 +103,7 @@ danger border and the retry strip that reuses the key.
 device and exist on no other, a 409 renders `Not sent` with `Try again` / `Delete`, and
 retry reuses the idempotency key.
 
-### 6.5 — Settings and profile
+### 6.5 — Settings and profile — **committed**
 
 Three homes, two transports (0022); the profile renders what cannot be edited and says so
 (0021); the sharing toggle rides the settings transport, never the receipt advance (0058,
@@ -114,10 +114,10 @@ test fails if any forbidden switch is added.
 
 ---
 
-## Sequence
+## Sequence — **complete**
 
 ```
-6.0 ──▶ 6.1 ──▶ 6.2 ──▶ 6.3 ──▶ 6.4 ──▶ 6.5 ──▶ stage 7
+6.0 ✅ ──▶ 6.1 ✅ ──▶ 6.2 ✅ ──▶ 6.3 ✅ ──▶ 6.4 ✅ ──▶ 6.5 ✅ ──▶ stage 7
 ```
 
 Strictly sequential: tokens before the components that spend them, list before transcript
