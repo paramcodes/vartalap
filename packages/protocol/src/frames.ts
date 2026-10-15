@@ -364,10 +364,23 @@ export type ReceiptSharingResponse = z.infer<typeof receiptSharingResponse>;
 export const directConversationRequest = z.object({
   /** The other member's Handle. Normalized before lookup. */
   handle: handle,
-  displayName: z.string().min(1).max(64).optional(),
 });
 
 export type DirectConversationRequest = z.infer<typeof directConversationRequest>;
+
+/**
+ * Group creation. `handles` are resolved server-side — the request names people
+ * the way members know each other, and user ids never cross the wire here.
+ * The creator is always added even if unnamed: a group its creator is not in
+ * is a room nobody entered.
+ */
+export const createGroupRequest = z.object({
+  /** Stored on the row. Direct conversations derive theirs and store nothing. */
+  title: z.string().min(1).max(64),
+  handles: z.array(handle).min(1).max(500),
+});
+
+export type CreateGroupRequest = z.infer<typeof createGroupRequest>;
 
 export const conversationListItem = z.object({
   conversationId,

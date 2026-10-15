@@ -17,6 +17,7 @@ import { auth } from '@vartalap/auth';
 import { fail, json, notFound, unauthenticated } from './http.ts';
 import { requireSession } from './session.ts';
 import { handleCatchUp } from './spine/catch-up-route.ts';
+import { handleCreateConversation } from './spine/conversations-route.ts';
 import { handleDeliveryAck } from './spine/delivery-route.ts';
 import { handleHistory } from './spine/history-route.ts';
 import { handleReceiptAdvance, handleReceiptSharing } from './spine/receipt-route.ts';
@@ -74,6 +75,9 @@ export async function handleRequest(request: Request): Promise<Response> {
 
   const acknowledged = await handleDeliveryAck(request, pathname);
   if (acknowledged !== null) return acknowledged;
+
+  const created = await handleCreateConversation(request, pathname);
+  if (created !== null) return created;
 
   return notFound(pathname);
 }
