@@ -33,16 +33,18 @@
  * column that is null by accident and null by design look identical until
  * someone writes to it.
  */
-import { eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, conversation, delivery, member, receipt, user } from '@vartalap/database';
 import {
   conversation as conversationSchema,
   MAX_GROUP_MEMBERS,
-  normalizeHandle,
   seqFromBigInt,
   type Conversation,
 } from '@vartalap/protocol';
 
+import { resolveUsers } from './users.ts';
+
+/** Seeding needs the id and the name; the username stays in `users.ts`. */
 export interface ResolvedMember {
   readonly id: string;
   readonly name: string;
@@ -54,35 +56,6 @@ export type CreateConversationOutcome =
   | { readonly kind: 'unknownHandle'; readonly handle: string }
   | { readonly kind: 'cannotTalkToSelf' }
   | { readonly kind: 'tooManyMembers'; readonly members: number };
-
-/**
- * Handles in, user rows out. One query for the whole list — a creation naming
- * fifty members does not do fifty lookups. Normalised before lookup, because
- * handles are lowercase by construction (the `username()` plugin) and a
- * mixed-case request names the same member.
- */
-async function resolveHandles(handles: readonly string[]): Promise<{
-  readonly resolved: ResolvedMember[];
-  readonly missing: string | null;
-}> {
-  const normalized = [...new Set(handles.map(normalizeHandle))];
-  if (normalized.length === 0) return { resolved: [], missing: null };
-  const rows = await db
-    .select({ id: user.id, username: user.username, name: user.name })
-    .from(user)
-    .where(inArray(user.username, normalized));
-  const byUsername = new Map(rows.map((row) => [row.username, row]));
-  for (const handle of normalized) {
-    if (!byUsername.has(handle)) return { resolved: [], missing: handle };
-  }
-  return {
-    resolved: normalized.map((handle) => {
-      const row = byUsername.get(handle)!;
-      return { id: row.id, name: row.name };
-    }),
-    missing: null,
-  };
-}
 
 /**
  * Seed members and watermarks for a conversation that now exists. Idempotent
@@ -133,7 +106,7 @@ export async function createDirectConversationWith(
     .where(eq(user.id, creatorId))
     .limit(1);
   if (creator[0] === undefined) throw new Error('the creator does not exist');
-  const { resolved, missing } = await resolveHandles([otherHandle]);
+  const { resolved, missing } = await resolveUsers([otherHandle]);
   if (missing !== null) return { kind: 'unknownHandle', handle: missing };
   const peer = resolved[0]!;
   if (peer.id === creator[0].id) return { kind: 'cannotTalkToSelf' };
@@ -175,7 +148,7 @@ export async function createGroupConversation(
     .where(eq(user.id, creatorId))
     .limit(1);
   if (creator[0] === undefined) throw new Error('the creator does not exist');
-  const { resolved, missing } = await resolveHandles(handles);
+  const { resolved, missing } = await resolveUsers(handles);
   if (missing !== null) return { kind: 'unknownHandle', handle: missing };
 
   const members = new Map<string, ResolvedMember>();

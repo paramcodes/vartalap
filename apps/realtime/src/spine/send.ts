@@ -65,10 +65,11 @@ import {
   serverFrame,
   type Attachment,
   type Message,
+  type SendBlockReason,
   type SendConflictField,
   type SendMessageRequest,
 } from '@vartalap/protocol';
-import { isCurrentMember } from './membership.ts';
+import { canSend } from './blocks.ts';
 import { toWireMessage, type StoredMessage } from './message-wire.ts';
 
 /**
@@ -97,6 +98,7 @@ export type SendOutcome =
   | { readonly kind: 'deduplicated'; readonly message: Message }
   | { readonly kind: 'conflict'; readonly conflictingFields: readonly SendConflictField[] }
   | { readonly kind: 'notAMember' }
+  | { readonly kind: 'sendBlocked'; readonly reason: SendBlockReason }
   | { readonly kind: 'attachmentsUnsupported' };
 
 /**
@@ -194,20 +196,21 @@ function isIdempotencyConflict(error: unknown): boolean {
 export async function sendMessage(command: SendCommand): Promise<SendOutcome> {
   const { authorId, request } = command;
 
-  // Membership, before anything is written — and before anything is said about the
-  // request's validity, because there is no reason to tell a non-member that their
-  // attachments are the wrong shape.
+  // Membership AND blocks, before anything is written — and before anything is
+  // said about the request's validity, because there is no reason to tell a
+  // non-member that their attachments are the wrong shape.
   //
-  // ADR 0007 puts the "can this user send" predicate in the application, once, and
-  // `isCurrentMember` IS that one copy. Stage 3.E added the receipt and delivery
-  // paths, and they ask the same question of the same row; three hand-written
-  // `member` queries would be three predicates, and the one somebody eventually
-  // relaxes is the one that lets a watermark be written into a conversation the
-  // caller was never in.
-  //
-  // Blocks are stage 5 and are NOT implemented — the reason enum still carries
-  // them because the envelope names a `sendBlockReason` the composer renders.
-  if (!(await isCurrentMember(request.conversationId, authorId))) return { kind: 'notAMember' };
+  // ADR 0007 puts the "can this user send" predicate in the application, once,
+  // and `canSend` IS that one copy: membership plus the block check between
+  // the direct pair (stage 5.B), asked the same way the receipt and delivery
+  // paths ask `isCurrentMember`. Blocks gate sending, never reading, so the
+  // watermark paths keep the membership-only predicate — correctly, not as
+  // leftover.
+  const permission = await canSend(request.conversationId, authorId);
+  if (!permission.allowed) {
+    if (permission.reason === 'not_a_member') return { kind: 'notAMember' };
+    return { kind: 'sendBlocked', reason: permission.reason };
+  }
 
   // `message-lifecycle.md` says the media seam exists and does not cross it, and
   // this is where that is enforced rather than assumed. A `422`, not a silent

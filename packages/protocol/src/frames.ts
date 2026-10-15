@@ -382,6 +382,18 @@ export const createGroupRequest = z.object({
 
 export type CreateGroupRequest = z.infer<typeof createGroupRequest>;
 
+/**
+ * Block and unblock name a member by handle, the way creation does. The
+ * responses are deliberately bare: blocking changes what the sender may do,
+ * not a thing the client renders beyond the composer's existing copy.
+ */
+export const blockRequest = z.object({
+  /** The member to block. Normalized before lookup. */
+  handle: handle,
+});
+
+export type BlockRequest = z.infer<typeof blockRequest>;
+
 export const conversationListItem = z.object({
   conversationId,
   kind: z.enum(['direct', 'group']),

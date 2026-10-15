@@ -16,6 +16,7 @@
 import { auth } from '@vartalap/auth';
 import { fail, json, notFound, unauthenticated } from './http.ts';
 import { requireSession } from './session.ts';
+import { handleBlocks } from './spine/blocks-route.ts';
 import { handleCatchUp } from './spine/catch-up-route.ts';
 import { handleCreateConversation } from './spine/conversations-route.ts';
 import { handleDeliveryAck } from './spine/delivery-route.ts';
@@ -78,6 +79,9 @@ export async function handleRequest(request: Request): Promise<Response> {
 
   const created = await handleCreateConversation(request, pathname);
   if (created !== null) return created;
+
+  const blocks = await handleBlocks(request, pathname);
+  if (blocks !== null) return blocks;
 
   return notFound(pathname);
 }

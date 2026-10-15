@@ -121,6 +121,23 @@ export async function handleSendMessage(request: Request, pathname: string): Pro
         403,
       );
 
+    case 'sendBlocked':
+      // The direction is the message the composer renders: `blocked_by_me` and
+      // `blocked_by_them` are different copy for different facts. Retryable
+      // either way — a block lifts without the sender doing anything.
+      return fail(
+        {
+          code: 'sendBlocked',
+          message:
+            outcome.reason === 'blocked_by_me'
+              ? 'you blocked this conversation'
+              : 'you are blocked in this conversation',
+          retryable: true,
+          reason: outcome.reason,
+        },
+        403,
+      );
+
     case 'attachmentsUnsupported':
       return fail(
         {
