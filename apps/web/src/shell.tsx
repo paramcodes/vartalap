@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { App } from './app.tsx';
 
 export type ShellState =
   | { readonly status: 'checking' }
@@ -76,13 +77,5 @@ export function Shell(deps: ShellDeps = {}) {
     );
   }
 
-  return (
-    <main className="bg-wash text-ink">
-      <h1>vartalap</h1>
-      <p className="text-ink-muted">No conversations yet.</p>
-      <button type="button" className="bg-accent text-ink-on-accent rounded-xl">
-        New message
-      </button>
-    </main>
-  );
+  return <App deps={{ viewerId: state.userId, fetch: deps.fetch }} />;
 }

@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router';
 import { Shell } from './shell.tsx';
 import './theme.css';
 
@@ -8,6 +9,8 @@ if (root === null) throw new Error('missing #root');
 
 createRoot(root).render(
   <StrictMode>
-    <Shell />
+    <BrowserRouter>
+      <Shell />
+    </BrowserRouter>
   </StrictMode>,
 );

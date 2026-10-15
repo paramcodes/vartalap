@@ -19,6 +19,7 @@ import { requireSession } from './session.ts';
 import { handleBlocks } from './spine/blocks-route.ts';
 import { handleCatchUp } from './spine/catch-up-route.ts';
 import { handleLeaveRejoin } from './spine/leave-route.ts';
+import { handleListConversations } from './spine/list-route.ts';
 import { handleCreateConversation } from './spine/conversations-route.ts';
 import { handleDeliveryAck } from './spine/delivery-route.ts';
 import { handleHistory } from './spine/history-route.ts';
@@ -86,6 +87,9 @@ export async function handleRequest(request: Request): Promise<Response> {
 
   const membership = await handleLeaveRejoin(request, pathname);
   if (membership !== null) return membership;
+
+  const list = await handleListConversations(request, pathname);
+  if (list !== null) return list;
 
   return notFound(pathname);
 }

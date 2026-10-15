@@ -1,14 +1,15 @@
 /**
  * 6.0 proves the harness, not behaviour: the shell renders through happy-dom
- * under `bun test`, asks `/api/me` relatively with the session cookie, and
- * shows the signed-in empty state the onboarding document promises (one
- * button — New message — and nothing else).
+ * under `bun test`, asks `/api/me` relatively with the session cookie, and —
+ * since 6.2 — hands a signed-in member to the conversation list rather than
+ * to a placeholder. The signed-out pixels are unchanged.
  *
  * Scope rule from the stage plan: this asserts what a state renders as, never
  * what the state means. Meaning stays pinned in the data layer.
  */
 import { describe, expect, test } from 'bun:test';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { Shell } from './shell.tsx';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -18,29 +19,45 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-describe('shell', () => {
-  test('renders the signed-in empty state after /api/me answers', async () => {
-    const seen: RequestInfo[] = [];
-    const fetchDouble = (async (input: RequestInfo) => {
-      seen.push(input);
-      return jsonResponse({ userId: 'member-1' });
-    }) as unknown as typeof globalThis.fetch;
+/** `/api/me` answers the member; every other same-origin read answers empty. */
+function shellFetch() {
+  const seen: string[] = [];
+  const fetchDouble = (async (input: string, init?: RequestInit) => {
+    seen.push(typeof input === 'string' ? input : String(input));
+    if (typeof input === 'string' && input === '/api/me') return jsonResponse({ userId: 'member-1' });
+    if (typeof input === 'string' && input === '/api/conversations') return jsonResponse([]);
+    return jsonResponse({ error: 'notFound' }, 404);
+  }) as unknown as typeof globalThis.fetch;
+  return { fetchDouble, seen };
+}
 
-    render(<Shell fetch={fetchDouble} />);
+describe('shell', () => {
+  test('renders the signed-in list after /api/me answers', async () => {
+    const { fetchDouble, seen } = shellFetch();
+
+    render(
+      <MemoryRouter>
+        <Shell fetch={fetchDouble} />
+      </MemoryRouter>,
+    );
 
     expect(await screen.findByText('No conversations yet.')).toBeDefined();
-    expect(screen.getByRole('button', { name: 'New message' })).toBeDefined();
-    // Same-origin: a relative URL, so the session cookie travels with it.
-    expect(seen).toEqual(['/api/me']);
+    // Same-origin: relative URLs, so the session cookie travels with both.
+    expect(seen).toContain('/api/me');
+    expect(seen).toContain('/api/conversations');
   });
 
   test('a 401 renders the signed-out state, and nothing of the list', async () => {
     const fetchDouble = (async () =>
       jsonResponse({ error: 'unauthenticated' }, 401)) as unknown as typeof globalThis.fetch;
 
-    render(<Shell fetch={fetchDouble} />);
+    render(
+      <MemoryRouter>
+        <Shell fetch={fetchDouble} />
+      </MemoryRouter>,
+    );
 
     expect(await screen.findByText('Sign in to message.')).toBeDefined();
-    expect(screen.queryByRole('button', { name: 'New message' })).toBeNull();
+    expect(screen.queryByText('No conversations yet.')).toBeNull();
   });
 });
