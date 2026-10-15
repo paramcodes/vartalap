@@ -113,15 +113,3 @@ export function Layout() {
     </div>
   );
 }
-
-/** The transcript's placeholder. Unit 6.3 replaces this with the transcript. */
-export function TranscriptPlaceholder() {
-  return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-2">
-      <Link to="/" className="rounded-xl px-3 py-1 text-accent md:hidden">
-        Back to conversations
-      </Link>
-      <p className="text-ink-muted">Select a conversation.</p>
-    </main>
-  );
-}

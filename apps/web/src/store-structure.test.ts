@@ -106,12 +106,36 @@ const STORE_SURFACE = [
 ].sort();
 
 describe('one write path, structurally', () => {
-  test('`store.ts` is the only module that imports Dexie', async () => {
-    const importers = (await productionSources())
-      .filter(({ source }) => code(source).includes("from 'dexie'"))
+  test('a second writable handle is a red test, not a review question', async () => {
+    // The inverse of the guarantee above, stated the way this repo prefers:
+    // add a constructor call anywhere but `store.ts` and this fails.
+    const offenders = (await productionSources())
+      .filter(({ name }) => name !== 'store.ts')
+      .filter(({ source }) => /new\s+VartalapDatabase/.test(code(source)))
+      .map(({ name }) => name);
+    expect(offenders).toEqual([]);
+  });
+
+  test('`store.ts` holds the only database handle', async () => {
+    // The hazard is a SECOND WRITABLE HANDLE, not any mention of Dexie. Since
+    // 6.3 the transcript subscribes through `liveQuery`, which needs no handle
+    // of its own — it takes a table the store returns. What must remain true is
+    // that only `store.ts` can create one, which is greppable exactly:
+    //   • a constructor call   — `new VartalapDatabase(…)`
+    //   • the private field    — the shape only the store's own constructor writes
+    //   • a table assignment   — `x.messages = …`, which would make a handle
+    const handles = (await productionSources())
+      .filter(({ source }) => {
+        const code_ = code(source);
+        return (
+          /new\s+VartalapDatabase/.test(code_) ||
+          /#db\s*:/.test(code_) ||
+          /\b(this\.)?(db|#db)\s*\.\s*(messages|drafts|receipts|deliveries|cursor|discrepancies)\s*=/.test(code_)
+        );
+      })
       .map(({ name }) => name);
 
-    expect(importers).toEqual(['store.ts']);
+    expect(handles).toEqual(['store.ts']);
   });
 
   test('the database handle is not exported out of `store.ts`', async () => {

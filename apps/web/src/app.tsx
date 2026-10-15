@@ -9,7 +9,8 @@
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { Route, Routes } from 'react-router';
 import { queryClient } from './conversations.ts';
-import { AppProviders, Layout, TranscriptPlaceholder, type AppDeps, type AppTestDeps } from './layout.tsx';
+import { AppProviders, Layout, type AppDeps, type AppTestDeps } from './layout.tsx';
+import { EmptyTranscript, TranscriptPanel } from './transcript-panel.tsx';
 
 export interface AppProps {
   readonly deps: AppDeps;
@@ -25,8 +26,8 @@ export function App({ deps, client, testDeps = {} }: AppProps) {
       <AppProviders deps={deps} testDeps={testDeps}>
         <Routes>
           <Route element={<Layout />}>
-            <Route index element={<TranscriptPlaceholder />} />
-            <Route path="c/:id" element={<TranscriptPlaceholder />} />
+            <Route index element={<EmptyTranscript />} />
+            <Route path="c/:id" element={<TranscriptPanel />} />
           </Route>
         </Routes>
       </AppProviders>

@@ -20,6 +20,7 @@ import { handleBlocks } from './spine/blocks-route.ts';
 import { handleCatchUp } from './spine/catch-up-route.ts';
 import { handleLeaveRejoin } from './spine/leave-route.ts';
 import { handleListConversations } from './spine/list-route.ts';
+import { handleMembership } from './spine/membership-route.ts';
 import { handleCreateConversation } from './spine/conversations-route.ts';
 import { handleDeliveryAck } from './spine/delivery-route.ts';
 import { handleHistory } from './spine/history-route.ts';
@@ -90,6 +91,11 @@ export async function handleRequest(request: Request): Promise<Response> {
 
   const list = await handleListConversations(request, pathname);
   if (list !== null) return list;
+
+  // Single-segment conversation reads sort last: every deeper path
+  // (`/history`, `/messages`) owns its own regex above.
+  const oneConversation = await handleMembership(request, pathname);
+  if (oneConversation !== null) return oneConversation;
 
   return notFound(pathname);
 }

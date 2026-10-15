@@ -31,7 +31,8 @@
  * this function is deliberately callable from outside any transaction.
  */
 import { and, eq, isNull } from 'drizzle-orm';
-import { db, member } from '@vartalap/database';
+import { conversation, db, member } from '@vartalap/database';
+import { membership, seqFromBigInt, type Membership } from '@vartalap/protocol';
 
 /**
  * The predicate itself, as a SQL fragment, for callers that need it INSIDE a query
@@ -60,4 +61,51 @@ export async function isCurrentMember(conversationId: string, userId: string): P
     .where(and(eq(member.conversationId, conversationId), memberScope(userId)))
     .limit(1);
   return memberships.length > 0;
+}
+
+/**
+ * One conversation and everybody in it — the transcript header's read.
+ *
+ * Ever-members read it, current or former: a former member remains a row and
+ * keeps their history, so the transcript that shows it owes them the header
+ * too. Strangers get `null` and the route answers the same `404` as an
+ * unknown id, which is what keeps the two indistinguishable.
+ */
+export async function readMembership(
+  conversationId: string,
+  userId: string,
+): Promise<Membership | null> {
+  const ever = await db
+    .select({ conversationId: member.conversationId })
+    .from(member)
+    .where(and(eq(member.conversationId, conversationId), eq(member.userId, userId)))
+    .limit(1);
+  if (ever.length === 0) return null;
+
+  const [row] = await db
+    .select()
+    .from(conversation)
+    .where(eq(conversation.id, conversationId))
+    .limit(1);
+  if (row === undefined) return null;
+
+  const memberRows = await db.select().from(member).where(eq(member.conversationId, conversationId));
+
+  return membership.parse({
+    conversation: {
+      id: String(row.id),
+      kind: row.kind,
+      directKey: row.directKey,
+      title: row.title,
+      lastSeq: seqFromBigInt(BigInt(row.lastSeq)),
+    },
+    members: memberRows.map((entry) => ({
+      conversationId: String(entry.conversationId),
+      userId: String(entry.userId),
+      displayName: entry.displayName,
+      avatarMediaId: entry.avatarMediaId,
+      leftAt: entry.leftAt === null ? null : entry.leftAt.toISOString(),
+      mutedAt: entry.mutedAt === null ? null : entry.mutedAt.toISOString(),
+    })),
+  });
 }

@@ -11,13 +11,22 @@
  */
 import { expect, test } from 'bun:test';
 import { sql } from '@vartalap/database/test-harness';
-import { newMessageId, insertUser } from './fixture.ts';
+import {
+  conversationId as conversationIdScalar,
+  seq as seqScalar,
+  type Seq,
+} from '@vartalap/protocol';
+import { newMessageId, insertUser, type DirectConversation } from './fixture.ts';
 import { createDirectConversationWith, createGroupConversation } from './conversations.ts';
 import { sendMessage } from './send.ts';
 import { advanceReceipt } from './receipt.ts';
 import { blockMember } from './blocks.ts';
 import { leaveConversation } from './leave.ts';
 import { listConversations } from './list.ts';
+
+/** The protocol's own brands, so a test asserts on the shipped shapes. */
+const seqOf = (value: string): Seq => seqScalar.parse(value);
+const conversationIdOf = (value: string) => conversationIdScalar.parse(value);
 
 async function handleOf(userId: string): Promise<string> {
   const rows = await sql<{ username: string }[]>`SELECT username FROM "user" WHERE id = ${userId}`;
@@ -27,7 +36,12 @@ async function handleOf(userId: string): Promise<string> {
 async function send(conversationId: string, authorId: string, body: string): Promise<string> {
   const outcome = await sendMessage({
     authorId,
-    request: { id: newMessageId(), conversationId, body, attachments: [] },
+    request: {
+      id: newMessageId(),
+      conversationId: conversationIdOf(conversationId),
+      body,
+      attachments: [],
+    },
   });
   if (outcome.kind !== 'created') throw new Error(`send refused: ${outcome.kind}`);
   return String(outcome.message.seq);
@@ -56,9 +70,9 @@ test('orders by position, keeps the muted row with its unread, locks the blocked
   await advanceReceipt({
     userId: String(viewer),
     request: {
-      conversationId: String(group.conversation.id),
-      readThrough: groupSeq,
-      sharedThrough: groupSeq,
+      conversationId: conversationIdOf(String(group.conversation.id)),
+      readThrough: seqOf(groupSeq),
+      sharedThrough: seqOf(groupSeq),
     },
   });
   await sql`UPDATE member SET muted_at = now() WHERE conversation_id = ${direct.conversation.id} AND user_id = ${viewer}`;
@@ -71,6 +85,11 @@ test('orders by position, keeps the muted row with its unread, locks the blocked
     String(group.conversation.id),
     String(empty.conversation.id),
   ]);
+  const ids: string[] = [
+    String(direct.conversation.id),
+    String(group.conversation.id),
+    String(empty.conversation.id),
+  ];
 
   const [pair, study, quiet] = items;
   // The muted pair stays in place with its unread intact: two messages past a
@@ -80,7 +99,7 @@ test('orders by position, keeps the muted row with its unread, locks the blocked
   expect(pair!.title).toBeNull();
   expect(pair!.peers?.map((peerRow) => peerRow.displayName)).toEqual(['Peer']);
   expect(pair!.permission).toEqual({ allowed: false, reason: 'blocked_by_them' });
-  expect(second).toBe(String(pair!.lastSeq));
+  expect(seqOf(second)).toBe(pair!.lastSeq);
 
   // Read to the end: no badge, stored title, no peers, sending open.
   expect(study!.unreadCount).toBe(0);
@@ -90,7 +109,7 @@ test('orders by position, keeps the muted row with its unread, locks the blocked
   expect(study!.permission).toEqual({ allowed: true });
 
   // Positionless sorts last and carries nothing to render beyond its peer.
-  expect(String(quiet!.lastSeq)).toBe('0');
+  expect(quiet!.lastSeq).toBe(seqOf('0'));
   expect(quiet!.unreadCount).toBe(0);
 });
 

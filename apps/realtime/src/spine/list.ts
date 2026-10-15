@@ -27,8 +27,11 @@
 import { and, count, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
 import { conversation, db, member, message, receipt } from '@vartalap/database';
 import {
+  conversationId as conversationIdScalar,
   conversationListItem,
+  mediaId as mediaIdScalar,
   seqFromBigInt,
+  userId as userIdScalar,
   type ConversationListItem,
   type Member,
   type Presence,
@@ -112,10 +115,10 @@ export async function listConversations(viewerId: string): Promise<ConversationL
       .where(and(eq(member.conversationId, conversationId), ne(member.userId, viewerId)));
 
     const peers: Member[] = peerRows.map((peer) => ({
-      conversationId: conversationId as Member['conversationId'],
-      userId: peer.userId as Member['userId'],
+      conversationId: conversationIdScalar.parse(conversationId),
+      userId: userIdScalar.parse(peer.userId),
       displayName: peer.displayName,
-      avatarMediaId: peer.avatarMediaId,
+      avatarMediaId: peer.avatarMediaId === null ? null : mediaIdScalar.parse(peer.avatarMediaId),
       leftAt: peer.leftAt === null ? null : peer.leftAt.toISOString(),
       mutedAt: null,
     }));
