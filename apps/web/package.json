@@ -7,16 +7,28 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "bun test --preload ./src/testing/fake-indexeddb.ts",
-    "typecheck": "tsc --noEmit"
+    "test": "bun test --preload ./src/testing/fake-indexeddb.ts --preload ./src/testing/setup-dom.ts",
+    "typecheck": "tsc --noEmit",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "node ./src/server.ts"
   },
   "dependencies": {
     "@vartalap/protocol": "workspace:*",
-    "dexie": "^4.4.6"
+    "dexie": "^4.4.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/bun": "latest",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "fake-indexeddb": "^6.2.5",
-    "typescript": "^5.7.0"
+    "happy-dom": "^21.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
   }
 }

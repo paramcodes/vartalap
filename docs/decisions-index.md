@@ -67,6 +67,7 @@ drift.
 | [0059-the-send-endpoint](adr/0059-the-send-endpoint.md) | `POST /api/conversations/{id}/messages`, four fields decide "the same content", and the error envelope carries `retryable` |
 | [0060-stored-state-is-narrow-and-derived-state-is-wide](adr/0060-stored-state-is-narrow-and-derived-state-is-wide.md) | A client row stores three states and derives five; `sent` is `seq !== null` and `delivered`/`read` are per-member watermarks, so no message row ever grows a read flag |
 | [0061-the-client-data-layer](adr/0061-the-client-data-layer.md) | The send queue is a query, the receive path is one function with three call sites enforced by a test, and a `COUNT(*)` mismatch refetches from the floor once and then records rather than loops |
+| [0062-static-react-spa-and-test-dom](adr/0062-static-react-spa-and-test-dom.md) | The interface is a static React SPA behind a same-origin proxy, proved with happy-dom — SSR rejected, no router until 6.2 |
 
 | Concept | Teaches |
 |---|---|
