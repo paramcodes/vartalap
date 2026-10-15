@@ -69,7 +69,7 @@ export function Shell(deps: ShellDeps = {}) {
 
   if (state.status === 'signed-out') {
     return (
-      <main>
+      <main className="bg-wash text-ink">
         <h1>vartalap</h1>
         <p>Sign in to message.</p>
       </main>
@@ -77,10 +77,12 @@ export function Shell(deps: ShellDeps = {}) {
   }
 
   return (
-    <main>
+    <main className="bg-wash text-ink">
       <h1>vartalap</h1>
-      <p>No conversations yet.</p>
-      <button type="button">New message</button>
+      <p className="text-ink-muted">No conversations yet.</p>
+      <button type="button" className="bg-accent text-ink-on-accent rounded-xl">
+        New message
+      </button>
     </main>
   );
 }

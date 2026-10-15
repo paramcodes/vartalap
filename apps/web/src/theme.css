@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   The app's canonical copy of ADR 0002's `messenger` token block.
+   Values are byte-identical to `prototype/messenger-shell/index.html`; the
+   prototypes stay inlined (the Tailwind browser build cannot `@import`, verified
+   in `prototype/README.md`), and `bun run check:tokens` fails if any copy
+   diverges — including this one.
+
+   Plain `@theme`, NOT `@theme inline`: the inline form pastes literals into
+   every utility and freezes `.dark` overrides at build time. See 0002.
+
+   `@source`: the Vite plugin sources this project automatically. No workspace
+   library ships UI code, so no hand-written glob is needed yet — but the day a
+   `packages/*` library carries a class, its `@source` line belongs HERE, at the
+   start, not discovered at the end (Tailwind v4 emits zero CSS for unsourced
+   workspace code, silently).
+   ═══════════════════════════════════════════════════════════════════════════════ */
+@theme {
+  /* ── scale anchor ────────────────────────────────────────────────────────────
+     One number moves forty components. shadcn's scale is --radius * multipliers;
+     --radius-xl lands on Messenger's exact 18px bubble without any component knowing
+     the value 18. Do not round this to 12.86 — 12.857 * 1.4 = 17.9998. */
+  --radius: 12.857px;
+  --radius-xl: calc(var(--radius) * 1.4);   /* 17.9998px  ==  Messenger's bubble */
+  --radius-lg: calc(var(--radius) * 0.622); /*   7.9971px  ==  Messenger's card   */
+  --radius-2xl: calc(var(--radius) * 2);    /*  25.714px   ==  the composer        */
+
+  /* NOTE: there is deliberately NO --radius-sm. A theme variable that no used
+     class references is tree-shaken out of the compiled CSS by Tailwind v4's build
+     and simply stops existing — a token declared but never rendered is a token
+     that is gone. Anything that looks like a token but is currently used only in
+     one hand-written inline style belongs here as a literal until it earns a class. */
+
+  /* ── brand: ONE value, byte-identical in both themes ─────────────────────────
+     Meta sets the outgoing bubble to the brand accent in light and dark alike.
+     This single fact is most of why dark-mode Messenger looks like Messenger. */
+  --color-accent: #0084FF;          /* classic Messenger blue */
+
+  /* ── surfaces ─────────────────────────────────────────────────────────────── */
+  --color-wash:        #F0F2F5;     /* --web-wash              */
+  --color-card:        #FFFFFF;     /* floating card           */
+  --color-elevated:    #FFFFFF;
+  /* Two names, one value: the neutral fill the settings surfaces and the composer's
+     own well are the same colour, and the prototypes that need them each named it
+     locally before the block was ever synced. Collapse them when a real token name
+     is settled. */
+  --color-surface:        #F0F0F0;
+  --color-surface-composer: #F0F0F0;
+
+  /* ── bubbles ──────────────────────────────────────────────────────────────── */
+  --color-bubble-in:   #F0F0F0;
+  --color-bubble-out:  var(--color-accent);   /* literally var(--accent), per Meta */
+
+  /* ── ink ──────────────────────────────────────────────────────────────────── */
+  --color-ink:           #050505;
+  --color-ink-muted:     #65676B;
+  --color-ink-faint:     #8A8D91;
+  --color-ink-on-accent: #FFFFFF;
+
+  /* ── lines and states ─────────────────────────────────────────────────────── */
+  --color-hairline: rgba(0, 0, 0, 0.06);
+  --color-selected:  #EBF5FF;       /* --hosted-view-selected-state */
+  --color-press:     rgba(0, 0, 0, 0.04);
+
+  /* ── status ───────────────────────────────────────────────────────────────── */
+  --color-danger: #D93025;
+  --color-warn:   #B26B00;
+
+  /* ── focus ──────────────────────────────────────────────────────────────────
+     shadcn's default is focus-visible:ring-ring/50, which measures ~2.4:1 on white
+     — under the 3:1 non-text minimum of WCAG 1.4.11. Opaque in both themes. */
+  --color-focus: #0866FF;
+
+  /* ── UNVERIFIED ─────────────────────────────────────────────────────────────
+     #31A73B is Meta's canonical green. No --presence-* token has been found in any
+     capture, so this value is inferred, not observed. Compare against messenger.com. */
+  --color-presence: #31A73B;
+
+  /* ── motion ─────────────────────────────────────────────────────────────────
+     Enter slower than exit. 280 in / 200 out. */
+  --ease-messenger-in:  cubic-bezier(0.14, 1, 0.34, 1);
+  --ease-messenger-out: cubic-bezier(0.45, 0.1, 0.2, 1);
+  --duration-enter: 280ms;
+  --duration-exit:  200ms;
+}
+
+/* Dark is its own token set, not an inversion. Note what does NOT change: accent,
+   bubble-out, and therefore the outgoing bubble colour. */
+.dark {
+  --color-wash:      #18191A;
+  --color-card:      #242526;
+  --color-elevated:  #3A3B3C;
+  --color-surface:        #2F2F2F;
+  --color-surface-composer: #2F2F2F;
+  --color-bubble-in: #303030;
+  --color-ink:       #E9E9E9;
+  --color-ink-muted: #B0B3B8;
+  --color-ink-faint: #8A8D91;
+  --color-hairline:  rgba(255, 255, 255, 0.08);
+  --color-selected:  #303030;
+  --color-press:     rgba(255, 255, 255, 0.06);
+  --color-danger:    #F28B82;
+  --color-warn:      #E0A33E;
+  --color-focus:     #66A3FF;
+}
+
+@layer base {
+  html { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  body { background: var(--color-wash); color: var(--color-ink); }
+
+  /* The fixed WCAG 1.4.11 fix: opaque ring, both themes. */
+  :where(a, button, [tabindex], textarea, input):focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}

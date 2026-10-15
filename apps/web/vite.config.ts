@@ -1,11 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 // Dev proxy keeps same-origin in development the same way `src/server.ts`
 // keeps it in production: `/api/*` goes to the realtime service, so the
 // shell only ever fetches relatively and the `lax` cookie survives (ADR 0062).
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
     proxy: {
