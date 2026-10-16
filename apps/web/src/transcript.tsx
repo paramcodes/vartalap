@@ -51,7 +51,7 @@ export interface TranscriptPanelDeps {
  * `shared_through` above `read_through` is exactly the lie ADR 0010 refuses.
  */
 export async function advanceReceiptThrough(conversationId: string, through: string): Promise<void> {
-  const response = await fetch(`/api/conversations/${conversationId}/receipts`, {
+  const response = await fetch(`/api/conversations/${conversationId}/receipt/advance`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },

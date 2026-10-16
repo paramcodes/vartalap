@@ -10,10 +10,10 @@
  * retrying safe rather than a second message.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import type { SendPermission } from '@vartalap/protocol';
 import { Composer } from './composer.tsx';
-import { useConversations } from './conversations.ts';
+import { queryClient, useConversations } from './conversations.ts';
 import { getStore } from './db.ts';
 import { DetailsPane } from './details.tsx';
 import { InfoIcon, ListIcon, PhoneIcon, VideoIcon } from './icons.tsx';
@@ -27,16 +27,84 @@ import type { MessageRow, MessageStore } from './store.ts';
 
 const OPEN: SendPermission = { allowed: true };
 
+function StartConversationInline({ fetchFn }: { fetchFn: typeof globalThis.fetch | undefined }) {
+  const navigate = useNavigate();
+  const [handle, setHandle] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  async function start(event: React.FormEvent) {
+    event.preventDefault();
+    setError(null);
+    const send = fetchFn ?? globalThis.fetch;
+    let response: Response;
+    try {
+      response = await send('/api/conversations/direct', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ handle: handle.trim().toLowerCase() }),
+      });
+    } catch {
+      setError("Can't start that conversation.");
+      return;
+    }
+    if (response.status === 404) {
+      setError('No such handle.');
+      return;
+    }
+    if (!response.ok) {
+      setError("Can't start that conversation.");
+      return;
+    }
+    const body = (await response.json()) as { id: string };
+    void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    navigate(`/c/${body.id}`);
+  }
+
+  return (
+    <form onSubmit={start} className="mt-2 flex flex-col gap-2 text-left">
+      <label htmlFor="empty-new-handle" className="text-xs font-medium text-ink-muted">
+        Start Direct Message
+      </label>
+      <div className="flex gap-2">
+        <input
+          id="empty-new-handle"
+          value={handle}
+          onChange={(event) => setHandle(event.target.value)}
+          placeholder="Enter username/handle"
+          autoComplete="off"
+          className="min-w-0 flex-1 rounded-xl border border-hairline bg-wash px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+        />
+        <button
+          type="submit"
+          className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-ink-on-accent transition hover:brightness-95"
+        >
+          Start
+        </button>
+      </div>
+      {error !== null && (
+        <p role="alert" className="text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 /** `/` — the transcript pane with nothing selected. */
 export function EmptyTranscript() {
+  const { fetch: fetchFn } = useAppDeps();
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-2 bg-wash">
-      <div className="flex flex-col items-center gap-2 text-center">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-card text-ink-faint shadow-xs">
+    <main className="flex flex-1 flex-col items-center justify-center gap-4 bg-wash p-6">
+      <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
+        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-card text-2xl text-accent shadow-xs">
           💬
         </span>
-        <p className="text-[15px] font-medium text-ink-muted">Select a conversation.</p>
-        <p className="text-[13px] text-ink-faint">Choose from the list on the left to start messaging.</p>
+        <h2 className="text-lg font-bold text-ink">Welcome to vartalap</h2>
+        <p className="text-[14px] text-ink-muted">Select an existing conversation, or start a new direct message.</p>
+        <div className="w-full rounded-2xl border border-hairline bg-card p-4 shadow-xs">
+          <StartConversationInline fetchFn={fetchFn} />
+        </div>
       </div>
     </main>
   );

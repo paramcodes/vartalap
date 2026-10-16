@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import type { ConversationListItem } from '@vartalap/protocol';
-import { useConversations, type ListDeps } from './conversations.ts';
+import { queryClient, useConversations, type ListDeps } from './conversations.ts';
 import { loadRows } from './db.ts';
 import { useAppTestDeps } from './layout.tsx';
 import {
@@ -180,6 +180,7 @@ function StartConversation({ fetchFn }: { fetchFn: typeof globalThis.fetch | und
       return;
     }
     const body = (await response.json()) as { id: string };
+    void queryClient.invalidateQueries({ queryKey: ['conversations'] });
     navigate(`/c/${body.id}`);
   }
 

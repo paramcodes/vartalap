@@ -48,11 +48,36 @@ function securityHeaders(nonce: string): Record<string, string> {
 }
 
 async function proxy(request: IncomingMessage, response: ServerResponse, path: string): Promise<void> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  const body = ['GET', 'HEAD'].includes(request.method ?? 'GET') ? undefined : Buffer.concat(chunks);
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(request.headers)) {
+    if (value && key.toLowerCase() !== 'host') {
+      if (Array.isArray(value)) {
+        for (const v of value) headers.append(key, v);
+      } else {
+        headers.set(key, value);
+      }
+    }
+  }
   const target = await fetch(`${realtime}${path}`, {
     method: request.method ?? 'GET',
-    headers: { cookie: request.headers.cookie ?? '' },
+    headers,
+    body: body ?? null,
   });
-  response.writeHead(target.status, { 'content-type': target.headers.get('content-type') ?? 'application/json' });
+  const resHeaders: Record<string, string | string[]> = {};
+  for (const [key, value] of target.headers.entries()) {
+    if (key.toLowerCase() === 'set-cookie') {
+      const getSetCookie = (target.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie;
+      resHeaders[key] = typeof getSetCookie === 'function' ? getSetCookie.call(target.headers) : value;
+    } else {
+      resHeaders[key] = value;
+    }
+  }
+  response.writeHead(target.status, resHeaders);
   response.end(Buffer.from(await target.arrayBuffer()));
 }
 

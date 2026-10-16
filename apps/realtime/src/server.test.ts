@@ -65,7 +65,7 @@ function me(headers: Record<string, string> = {}): Promise<Response> {
 test('the shell routes, and health needs no session', async () => {
   const response = await fetch(`${origin}/health`);
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ ok: true });
+  expect(await response.json()).toEqual({ status: 'pass', database: true, redis: true });
 });
 
 test('an unauthenticated request to a protected route is 401', async () => {
@@ -150,6 +150,8 @@ test('that user id is the row Better Auth wrote, not an echo of the cookie', asy
  * from files running more than the 10-second window apart. Eleven inside one test cannot.
  */
 test('the sign-up budget for a test run is not three — the limiter is raised, not removed', async () => {
+  const runId = crypto.randomUUID().slice(0, 8);
+  const runName = `Budget_${runId}`;
   const statuses: number[] = [];
   for (let attempt = 0; attempt < 11; attempt += 1) {
     const handle = `budget${attempt}x${crypto.randomUUID().replaceAll('-', '').slice(0, 8)}`;
@@ -157,7 +159,7 @@ test('the sign-up budget for a test run is not three — the limiter is raised, 
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        name: 'Budget',
+        name: runName,
         username: handle,
         email: `${handle}@example.test`,
         password: PASSWORD,
@@ -174,7 +176,7 @@ test('the sign-up budget for a test run is not three — the limiter is raised, 
 
   // And they really are users: a raised ceiling that answered `200` without writing
   // would satisfy the assertion above and prove nothing about the harness.
-  const rows = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM "user" WHERE name = 'Budget'`;
+  const rows = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM "user" WHERE name = ${runName}`;
   expect(rows[0]!.n).toBe('11');
 });
 

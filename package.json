@@ -20,12 +20,15 @@
     "auth:check": "bun run --env-file=.env --filter=@vartalap/auth check-schema",
     "auth:smoke": "bun run --env-file=.env --filter=@vartalap/auth smoke",
     "realtime": "bun run --env-file=.env --filter=@vartalap/realtime start",
-    "realtime:dev": "bun run --env-file=.env --filter=@vartalap/realtime dev"
+    "realtime:dev": "bun run --env-file=.env --filter=@vartalap/realtime dev",
+    "dev": "bun run --filter=@vartalap/web dev",
+    "e2e:drive": "bun run scripts/e2e-drive.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",
     "@electric-sql/pglite-socket": "^0.2.13",
     "@types/bun": "latest",
+    "puppeteer-core": "^25.14.0",
     "typescript": "^5.7.0"
   },
   "engines": {
