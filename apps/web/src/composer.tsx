@@ -103,6 +103,8 @@ export function Composer({
 }: ComposerDeps) {
   const [text, setText] = useDraft(conversationId, store);
   const state = guard(permission, text);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [stagedFiles, setStagedFiles] = useState<{ id: string; name: string; url: string }[]>([]);
 
   // ADR 0051's three belts. A flag we own, then the property, then the legacy
   // sniff — no one of them is sufficient, and the microtask on `compositionend`
@@ -113,6 +115,19 @@ export function Composer({
     if (state.kind !== 'ready') return;
     send(text);
     setText('');
+    setStagedFiles([]);
+  }
+
+  function handlePickFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0) return;
+    const added = files.map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      url: URL.createObjectURL(f),
+    }));
+    setStagedFiles((prev) => [...prev, ...added]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -146,13 +161,41 @@ export function Composer({
           {lockCopy}
         </p>
       )}
+      {stagedFiles.length > 0 && (
+        <div className="mx-auto mb-2 flex max-w-[760px] gap-2 overflow-x-auto py-1">
+          {stagedFiles.map((item) => (
+            <div
+              key={item.id}
+              className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-card shadow-2xs ring-1 ring-hairline"
+            >
+              <img src={item.url} alt={item.name} className="h-full w-full object-cover" />
+              <button
+                type="button"
+                onClick={() => setStagedFiles((prev) => prev.filter((f) => f.id !== item.id))}
+                aria-label={`Remove ${item.name}`}
+                className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-[10px] text-white hover:bg-black/80"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="mx-auto flex w-full max-w-[760px] items-end gap-1 rounded-2xl bg-card px-2 py-1.5 ring-1 ring-hairline">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={handlePickFile}
+        />
         <button
           type="button"
-          disabled
+          onClick={() => fileInputRef.current?.click()}
           aria-label="Add photo"
-          title="Media arrives in stage 7"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-ink-muted hover:bg-press disabled:opacity-40"
+          title="Attach image"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-ink-muted hover:bg-press"
         >
           <ClipIcon />
         </button>

@@ -59,7 +59,7 @@
  * Message is decided.
  */
 import { eq, sql as drizzleSql } from 'drizzle-orm';
-import { conversation, db, message, outbox } from '@vartalap/database';
+import { conversation, db, message, messageAttachment, outbox } from '@vartalap/database';
 import {
   conversationId as conversationIdScalar,
   serverFrame,
@@ -70,6 +70,7 @@ import {
   type SendMessageRequest,
 } from '@vartalap/protocol';
 import { canSend } from './blocks.ts';
+import { assertAttachmentsReady } from './media.ts';
 import { toWireMessage, type StoredMessage } from './message-wire.ts';
 
 /**
@@ -212,15 +213,12 @@ export async function sendMessage(command: SendCommand): Promise<SendOutcome> {
     return { kind: 'sendBlocked', reason: permission.reason };
   }
 
-  // `message-lifecycle.md` says the media seam exists and does not cross it, and
-  // this is where that is enforced rather than assumed. A `422`, not a silent
-  // drop: `message_attachment` cannot round-trip a protocol Attachment (no
-  // `variant`), so a stored attachment could never be reproduced in a dedupe
-  // response, and the alternative — accept them and store what the wire cannot
-  // read back — is a state where the database claims a message has attachments
-  // and the server cannot show them. Terminal on the wire by the composer's own
-  // test: retrying these identical bytes reaches this identical answer.
-  if (request.attachments.length > 0) return { kind: 'attachmentsUnsupported' };
+  // ADR 0052: "media is staged before the message exists, send only references ready media".
+  // Check that all attachments are in 'ready' state and owned by the author.
+  if (request.attachments.length > 0) {
+    const ready = await assertAttachmentsReady(request.attachments, authorId);
+    if (!ready) return { kind: 'attachmentsUnsupported' };
+  }
 
   const clientCreatedAt =
     request.clientCreatedAt !== undefined ? new Date(request.clientCreatedAt) : new Date();
@@ -267,10 +265,21 @@ export async function sendMessage(command: SendCommand): Promise<SendOutcome> {
       // 3. The outbox row, in the SAME transaction and BEFORE the response. The
       //    payload is the frame the relay will publish, validated first — so a
       //    malformed payload cannot reach the table and cannot reach a client.
+      const canonical = canonicalAttachments(request.attachments);
+      if (canonical.length > 0) {
+        await tx.insert(messageAttachment).values(
+          canonical.map((att, idx) => ({
+            messageSeq: inserted.seq,
+            mediaId: att.mediaId,
+            position: idx,
+          })),
+        );
+      }
+
       const frame = serverFrame.parse({
         type: 'message.created',
         conversationId: conversationIdScalar.parse(stored.conversationId),
-        message: toWireMessage(stored),
+        message: toWireMessage(stored, canonical),
       });
       await tx.insert(outbox).values({
         messageSeq: inserted.seq,
@@ -287,7 +296,7 @@ export async function sendMessage(command: SendCommand): Promise<SendOutcome> {
       return stored;
     });
 
-    return { kind: 'created', message: toWireMessage(row) };
+    return { kind: 'created', message: toWireMessage(row, canonicalAttachments(request.attachments)) };
   } catch (error) {
     if (!isIdempotencyConflict(error)) throw error;
 
