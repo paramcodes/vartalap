@@ -515,6 +515,25 @@ export class MessageStore {
   }
 
   /**
+   * Discard a queued send. The system never calls this — {@link markFailed} is
+   * what a refusal does, and a row is never taken off the screen by anyone but
+   * the member who typed it (ADR 0053).
+   *
+   * **Refuses to discard a positioned message.** A `seq` is the server's
+   * primary key and the conversation's ordering; deleting a row that holds one
+   * would leave the cursor and the watermarks pointing at a position nobody
+   * occupies. Only `seq === null` — a send this browser has not had answered —
+   * can be discarded, and the answer says which happened.
+   */
+  async discardSend(id: string): Promise<'discarded' | 'notDiscarded'> {
+    return this.#db.transaction('rw', this.#db.messages, async () => {
+      const row = await this.#db.messages.get(id);
+      if (row === undefined || row.seq !== null) return 'notDiscarded';
+      await this.#db.messages.delete(id);
+      return 'discarded';
+    });
+  }
+  /**
    * Put every open row back into the queue.
    *
    * A reload kills every `POST` this browser had open, and a row left in

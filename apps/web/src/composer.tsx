@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { SendPermission } from '@vartalap/protocol';
+import { ClipIcon, SendIcon, SmileIcon } from './icons.tsx';
 import { canSend } from './send.ts';
 import type { MessageStore } from './store.ts';
 
@@ -139,23 +140,21 @@ export function Composer({
     : null;
 
   return (
-    <div className="border-t border-hairline bg-card">
+    <div className="shrink-0 bg-wash px-4 pb-4 pt-1">
       {lockCopy !== null && (
-        <p role="status" className="px-3 pt-2 text-[13px] text-danger">
+        <p role="status" className="mx-auto max-w-[760px] pb-1 text-[13px] text-danger">
           {lockCopy}
         </p>
       )}
-      <div className="flex items-end gap-2 p-3">
-        {/* The attach button is a 36px circle, icon only, no fill and no
-            border until hover (0050). Media is out of scope for stage 6, so
-            it renders disabled rather than pretending. */}
+      <div className="mx-auto flex w-full max-w-[760px] items-end gap-1 rounded-2xl bg-card px-2 py-1.5 ring-1 ring-hairline">
         <button
           type="button"
           disabled
           aria-label="Add photo"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-muted"
+          title="Media arrives in stage 7"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-ink-muted hover:bg-press disabled:opacity-40"
         >
-          +
+          <ClipIcon />
         </button>
         <label htmlFor={`composer-${conversationId}`} className="sr-only">
           {`Message ${conversationId}`}
@@ -177,16 +176,23 @@ export function Composer({
           }}
           placeholder="Message"
           rows={1}
-          className="max-h-40 min-h-9 flex-1 resize-none rounded-2xl bg-surface-composer px-3 py-2 text-[15px] text-ink"
+          className="max-h-32 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-[15px] text-ink outline-none placeholder:text-ink-faint"
         />
+        <button
+          type="button"
+          aria-label="Emoji"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-ink-muted hover:bg-press"
+        >
+          <SmileIcon />
+        </button>
         <button
           type="button"
           onClick={commit}
           disabled={state.kind !== 'ready'}
           aria-label="Send message"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-ink-on-accent disabled:opacity-40"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent text-white hover:brightness-95 disabled:opacity-40"
         >
-          ➤
+          <SendIcon />
         </button>
       </div>
     </div>

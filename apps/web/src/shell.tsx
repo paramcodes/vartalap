@@ -70,9 +70,14 @@ export function Shell(deps: ShellDeps = {}) {
 
   if (state.status === 'signed-out') {
     return (
-      <main className="bg-wash text-ink">
-        <h1>vartalap</h1>
-        <p>Sign in to message.</p>
+      <main className="flex h-dvh items-center justify-center bg-wash p-4 text-ink">
+        <div className="flex w-full max-w-sm flex-col items-center rounded-2xl border border-hairline bg-card p-6 text-center shadow-xs">
+          <span className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-2xl font-bold text-ink-on-accent shadow-xs">
+            V
+          </span>
+          <h1 className="text-xl font-bold tracking-tight">vartalap</h1>
+          <p className="mt-1 text-sm text-ink-muted">Sign in to message.</p>
+        </div>
       </main>
     );
   }

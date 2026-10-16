@@ -4,20 +4,22 @@
  * pair's row rendering the locked affordance. Server order is rendered, never
  * re-sorted — these tests pin what the states render as.
  */
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { QueryClient } from '@tanstack/react-query';
 import { seq as seqScalar } from '@vartalap/protocol';
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { App } from './app.tsx';
 import type { MessageRow } from './store.ts';
 
+// `screen` is one document for the whole run; without this, a render left by an
+// earlier file answers the next file's queries.
+afterEach(() => cleanup());
 const CONVERSATION_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CONVERSATION_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const CONVERSATION_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const CONVERSATION_D = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const PEER = '22222222-2222-4222-8222-222222222222';
-
 function member(displayName: string) {
   return {
     conversationId: CONVERSATION_A,
@@ -28,7 +30,6 @@ function member(displayName: string) {
     mutedAt: null,
   };
 }
-
 const ITEMS = [
   {
     conversationId: CONVERSATION_A,
@@ -74,7 +75,6 @@ const ITEMS = [
     permission: { allowed: false, reason: 'blocked_by_me' },
   },
 ];
-
 function testFetch() {
   return (async (input: string) => {
     if (typeof input === 'string' && input === '/api/conversations') {
@@ -86,7 +86,6 @@ function testFetch() {
     return new Response('{}', { status: 404 });
   }) as unknown as typeof globalThis.fetch;
 }
-
 function testRows(): (conversationId: string) => Promise<MessageRow[]> {
   const base: MessageRow = {
     id: '01911111-1111-7111-9111-111111111111',
@@ -105,7 +104,6 @@ function testRows(): (conversationId: string) => Promise<MessageRow[]> {
   return async (conversationId: string) =>
     conversationId === CONVERSATION_A ? [{ ...base, conversationId }] : [];
 }
-
 async function renderList() {
   render(
     <MemoryRouter>
@@ -119,7 +117,6 @@ async function renderList() {
   const articles = await screen.findAllByRole('article');
   return articles;
 }
-
 describe('conversation list', () => {
   test('renders server order with positions 1..4', async () => {
     const articles = await renderList();
@@ -131,7 +128,6 @@ describe('conversation list', () => {
     ]);
     expect(articles[0]!.getAttribute('aria-setsize')).toBe('4');
   });
-
   test('a muted conversation keeps its unread badge and gains a glyph', async () => {
     const articles = await renderList();
     const muted = within(articles[0]!);
@@ -141,7 +137,6 @@ describe('conversation list', () => {
     expect(muted.getByLabelText('Muted')).toBeDefined();
     expect(muted.getByText('are you around later')).toBeDefined();
   });
-
   test('a zero-position conversation renders as positionless, not missing', async () => {
     const articles = await renderList();
     const quiet = within(articles[2]!);
@@ -149,7 +144,6 @@ describe('conversation list', () => {
     expect(quiet.getByText('No messages yet')).toBeDefined();
     expect(quiet.queryByLabelText(/unread messages/)).toBeNull();
   });
-
   test("a blocked pair's row renders the locked affordance", async () => {
     const articles = await renderList();
     const locked = within(articles[3]!);

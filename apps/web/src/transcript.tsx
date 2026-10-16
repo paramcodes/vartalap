@@ -210,40 +210,44 @@ export function Transcript({
 
   return (
     <main className="relative flex min-h-0 flex-1 flex-col">
-      <div ref={scroller} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4">
-        {ordered.map((row, index) => {
-          const outgoing = row.authorId === viewerId;
-          const state = renderedStateOf(row, {
-            ownReadThrough: null,
-            deliveredThrough,
-          });
-          const last = isLastOutgoing(ordered, row, viewerId);
-          return (
-            <div key={row.id}>
-              {dividerAfter(ordered, index) && (
-                <div className="my-3 text-center text-[13px] text-ink-faint">
-                  {dayLabel(ordered[index]!.createdAt, now)}
+      <div ref={scroller} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3">
+        <div className="mx-auto flex w-full max-w-[760px] flex-col">
+          {ordered.map((row, index) => {
+            const outgoing = row.authorId === viewerId;
+            const state = renderedStateOf(row, {
+              ownReadThrough: null,
+              deliveredThrough,
+            });
+            const last = isLastOutgoing(ordered, row, viewerId);
+            return (
+              <div key={row.id}>
+                {dividerAfter(ordered, index) && (
+                  <div className="my-3 flex justify-center">
+                    <span className="rounded-full bg-card px-2.5 py-1 text-[11px] font-medium text-ink-muted shadow-2xs">
+                      {dayLabel(ordered[index]!.createdAt, now)}
+                    </span>
+                  </div>
+                )}
+                <div className={`mb-1 flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
+                  <p
+                    className={`${bubbleClasses(burstState(ordered, index))} max-w-[74%] px-3 py-2 text-[15px] leading-snug whitespace-pre-wrap ${
+                      outgoing ? 'bg-bubble-out text-ink-on-accent' : 'bg-bubble-in text-ink'
+                    }`}
+                  >
+                    {row.body}
+                  </p>
                 </div>
-              )}
-              <div className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
-                <p
-                  className={`${bubbleClasses(burstState(ordered, index))} max-w-[74%] px-3 py-2 text-[15px] whitespace-pre-wrap ${
-                    outgoing ? 'bg-bubble-out text-ink-on-accent' : 'bg-bubble-in text-ink'
-                  }`}
-                >
-                  {row.body}
-                </p>
+                {outgoing && last && (
+                  <div className="flex justify-end">
+                    <span className="mb-1 text-[11px] text-ink-faint">
+                      {seen ? 'Seen' : state === 'sent' ? 'Sent' : state === 'delivered' ? 'Delivered' : state === 'read' ? 'Read' : state}
+                    </span>
+                  </div>
+                )}
               </div>
-              {outgoing && last && (
-                <div className="flex justify-end">
-                  <span className="mt-1 text-[13px] text-ink-faint">
-                    {seen ? 'Seen' : state === 'sent' ? 'Sent' : state === 'delivered' ? 'Delivered' : state === 'read' ? 'Read' : state}
-                  </span>
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
       {overlay > 0 && (
         <button

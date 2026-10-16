@@ -10,11 +10,15 @@
  * retrying safe rather than a second message.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import type { SendPermission } from '@vartalap/protocol';
 import { Composer } from './composer.tsx';
+import { useConversations } from './conversations.ts';
 import { getStore } from './db.ts';
-import { useAppDeps } from './layout.tsx';
+import { DetailsPane } from './details.tsx';
+import { InfoIcon, ListIcon, PhoneIcon, VideoIcon } from './icons.tsx';
+import { useAppDeps, usePaneContext } from './layout.tsx';
+import { deriveTitle, hueOf, initialsOf } from './list.ts';
 import { failedRows } from './retry.ts';
 import { flushQueue, queueSend } from './send.ts';
 import { Transcript } from './transcript.tsx';
@@ -26,8 +30,14 @@ const OPEN: SendPermission = { allowed: true };
 /** `/` — the transcript pane with nothing selected. */
 export function EmptyTranscript() {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-2">
-      <p className="text-ink-muted">Select a conversation.</p>
+    <main className="flex flex-1 flex-col items-center justify-center gap-2 bg-wash">
+      <div className="flex flex-col items-center gap-2 text-center">
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-card text-ink-faint shadow-xs">
+          💬
+        </span>
+        <p className="text-[15px] font-medium text-ink-muted">Select a conversation.</p>
+        <p className="text-[13px] text-ink-faint">Choose from the list on the left to start messaging.</p>
+      </div>
     </main>
   );
 }
@@ -35,11 +45,19 @@ export function EmptyTranscript() {
 /** `/c/:id` — the transcript, its retry strips, and the composer. */
 export function TranscriptPanel() {
   const { id } = useParams<{ id: string }>();
-  const { viewerId } = useAppDeps();
+  const { viewerId, fetch: fetchFn } = useAppDeps();
+  const { listOpen, toggleList, detailsOpen, toggleDetails } = usePaneContext();
 
   const [store, setStore] = useState<MessageStore | undefined>(undefined);
   const [permission, setPermission] = useState<SendPermission>(OPEN);
   const [failed, setFailed] = useState<readonly MessageRow[]>([]);
+
+  const conversationsQuery = useConversations({ fetch: fetchFn });
+  const conversation = conversationsQuery.data?.find((c) => c.conversationId === id);
+  const title = conversation ? deriveTitle(conversation, viewerId) : 'Conversation';
+  const isOnline = conversation?.presence.some((p) => p.userId !== viewerId && p.online) ?? true;
+  const hue = id ? hueOf(id) : 210;
+  const initials = initialsOf(title);
 
   // The store, once. The composer needs it for drafts, which are device-local
   // (0049) — a store that is `undefined` means no draft anywhere.
@@ -123,41 +141,112 @@ export function TranscriptPanel() {
   if (id === undefined || store === undefined) return <EmptyTranscript />;
 
   return (
-    <>
-      <Transcript conversationId={id} viewerId={viewerId} />
-      {failed.length > 0 && (
-        <div className="border-t border-danger bg-card px-3 py-2">
-          {failed.map((row) => (
-            <div key={row.id} className="flex items-center justify-between gap-2">
-              <span className="text-[13px] text-danger">
-                Not sent{row.failureDetail === null ? '' : `: ${row.failureDetail}`}
-              </span>
-              <span className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => retry(row.id)}
-                  className="rounded-lg border border-hairline px-2 py-1 text-[13px] text-ink"
-                >
-                  Try again
-                </button>
-                <button
-                  type="button"
-                  onClick={() => retry(row.id)}
-                  className="rounded-lg px-2 py-1 text-[13px] text-ink-muted"
-                >
-                  Delete
-                </button>
-              </span>
+    <div className="flex h-full min-h-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col bg-wash">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline bg-card px-4">
+          <Link
+            to="/"
+            aria-label="Back to conversations"
+            className="grid h-9 w-9 place-items-center rounded-full text-ink-muted hover:bg-press hover:text-ink md:hidden"
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M11 4L5 9l6 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </Link>
+          <button
+            type="button"
+            onClick={toggleList}
+            aria-label="Toggle conversation list"
+            aria-pressed={listOpen}
+            className={`hidden md:grid h-9 w-9 place-items-center rounded-full text-ink-muted hover:bg-press hover:text-ink transition-opacity ${
+              listOpen ? 'opacity-100' : 'opacity-45'
+            }`}
+          >
+            <ListIcon />
+          </button>
+          <span
+            aria-hidden="true"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold text-white shadow-2xs"
+            style={{ background: `hsl(${hue} 46% 46%)` }}
+          >
+            {initials}
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate text-[15px] font-semibold leading-tight text-ink">{title}</h2>
+            <p className="truncate text-[12px] text-ink-muted">
+              {isOnline ? 'Active now' : 'Active recently'}
+            </p>
+          </div>
+          <span className="flex-1" />
+          <button
+            type="button"
+            disabled
+            aria-label="Voice call"
+            title="Calls are tier 3"
+            className="grid h-9 w-9 place-items-center rounded-full text-ink-muted hover:bg-press hover:text-ink disabled:opacity-40"
+          >
+            <PhoneIcon />
+          </button>
+          <button
+            type="button"
+            disabled
+            aria-label="Video call"
+            title="Calls are tier 3"
+            className="grid h-9 w-9 place-items-center rounded-full text-ink-muted hover:bg-press hover:text-ink disabled:opacity-40"
+          >
+            <VideoIcon />
+          </button>
+          <button
+            type="button"
+            onClick={toggleDetails}
+            aria-label="Toggle conversation details"
+            aria-pressed={detailsOpen}
+            className={`grid h-9 w-9 place-items-center rounded-full text-ink-muted hover:bg-press hover:text-ink transition-opacity ${
+              detailsOpen ? 'opacity-100' : 'opacity-45'
+            }`}
+          >
+            <InfoIcon />
+          </button>
+        </header>
+
+        <Transcript conversationId={id} viewerId={viewerId} />
+        {failed.length > 0 && (
+          <div className="border-t border-danger bg-card px-4 py-2">
+            <div className="mx-auto flex max-w-[760px] flex-col gap-1">
+              {failed.map((row) => (
+                <div key={row.id} className="flex items-center justify-between gap-2">
+                  <span className="text-[13px] text-danger">
+                    Not sent{row.failureDetail === null ? '' : `: ${row.failureDetail}`}
+                  </span>
+                  <span className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => retry(row.id)}
+                      className="rounded-lg border border-hairline px-2.5 py-1 text-[13px] text-ink hover:bg-press"
+                    >
+                      Try again
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => retry(row.id)}
+                      className="rounded-lg px-2.5 py-1 text-[13px] text-ink-muted hover:bg-press hover:text-ink"
+                    >
+                      Delete
+                    </button>
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
-      <Composer
-        permission={permission}
-        conversationId={id}
-        send={send}
-        store={store}
-      />
-    </>
+          </div>
+        )}
+        <Composer
+          permission={permission}
+          conversationId={id}
+          send={send}
+          store={store}
+        />
+      </div>
+      {detailsOpen && <DetailsPane conversationId={id} title={title} isOnline={isOnline} />}
+    </div>
   );
 }
