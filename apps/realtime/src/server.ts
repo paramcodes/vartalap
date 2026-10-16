@@ -25,6 +25,9 @@ import { handleCreateConversation } from './spine/conversations-route.ts';
 import { handleDeliveryAck } from './spine/delivery-route.ts';
 import { handleHistory } from './spine/history-route.ts';
 import { handleReceiptAdvance, handleReceiptSharing } from './spine/receipt-route.ts';
+import { eraseAccount } from './spine/erasure.ts';
+import { exportUserData } from './spine/export.ts';
+import { checkHealth } from './spine/health.ts';
 import { handleMedia } from './spine/media-route.ts';
 import { handlePush } from './spine/push-route.ts';
 import { handleSearch } from './spine/search-route.ts';
@@ -41,7 +44,8 @@ export async function handleRequest(request: Request): Promise<Response> {
   const { pathname } = new URL(request.url);
 
   if (pathname === '/health' && request.method === 'GET') {
-    return json({ ok: true });
+    const health = await checkHealth();
+    return json(health, health.status === 'pass' ? 200 : 503);
   }
 
   // Better Auth owns this whole prefix. Mounted rather than reimplemented:
@@ -52,12 +56,29 @@ export async function handleRequest(request: Request): Promise<Response> {
     return auth.handler(request);
   }
 
+  // On-demand account archive export (ADR 0022, Gate H4)
+  if (pathname === '/api/me/export') {
+    if (request.method !== 'GET') {
+      return fail({ code: 'methodNotAllowed', message: 'use GET here', retryable: false }, 405);
+    }
+    const userId = await requireSession(request);
+    if (userId === null) return unauthenticated();
+    const data = await exportUserData(userId);
+    return json(data);
+  }
+
   // The protected route that proves the session boundary works. It is a
   // harness, not a product route: it exists so 3.A can show an anonymous caller
   // gets 401 and a signed-in caller gets their own id back.
   if (pathname === '/api/me') {
+    if (request.method === 'DELETE') {
+      const userId = await requireSession(request);
+      if (userId === null) return unauthenticated();
+      await eraseAccount(userId);
+      return json({ ok: true, deleted: true });
+    }
     if (request.method !== 'GET') {
-      return fail({ code: 'methodNotAllowed', message: 'use GET here', retryable: false }, 405);
+      return fail({ code: 'methodNotAllowed', message: 'use GET or DELETE here', retryable: false }, 405);
     }
     const userId = await requireSession(request);
     if (userId === null) return unauthenticated();

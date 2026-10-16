@@ -14,15 +14,23 @@
  */
 import { errorEnvelope, type ErrorBody } from '@vartalap/protocol';
 
-const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
+export const SECURITY_HEADERS = {
+  'content-type': 'application/json; charset=utf-8',
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+  'cross-origin-opener-policy': 'same-origin',
+  'strict-transport-security': 'max-age=31536000; includeSubDomains',
+};
 
-export function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+export function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...SECURITY_HEADERS, ...extraHeaders } });
 }
 
 /** Every failure is `{ error: { code, message, retryable, … } }`. One shape, always. */
-export function fail(error: ErrorBody, status: number): Response {
-  return json(errorEnvelope.parse({ error }), status);
+export function fail(error: ErrorBody, status: number, extraHeaders: Record<string, string> = {}): Response {
+  return json(errorEnvelope.parse({ error }), status, extraHeaders);
 }
 
 /**
