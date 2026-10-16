@@ -77,10 +77,10 @@ portrait photo keeps orientation; send refuses unready media IDs; tray never dro
 
 ---
 
-## Sequence
+## Sequence — **complete**
 
 ```
-7.1 (Search) ──▶ 7.2 (Push) ──▶ 7.3 (Media) ──▶ Stage 8 (Hardening)
+7.1 ✅ ──▶ 7.2 ✅ ──▶ 7.3 ✅ ──▶ Stage 8 (Hardening)
 ```
 
 ## Rules for every unit
