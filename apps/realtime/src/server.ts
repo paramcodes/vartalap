@@ -25,6 +25,7 @@ import { handleCreateConversation } from './spine/conversations-route.ts';
 import { handleDeliveryAck } from './spine/delivery-route.ts';
 import { handleHistory } from './spine/history-route.ts';
 import { handleReceiptAdvance, handleReceiptSharing } from './spine/receipt-route.ts';
+import { handlePush } from './spine/push-route.ts';
 import { handleSearch } from './spine/search-route.ts';
 import { handleSendMessage } from './spine/send-route.ts';
 
@@ -101,6 +102,9 @@ export async function handleRequest(request: Request): Promise<Response> {
 
   const search = await handleSearch(request, pathname);
   if (search !== null) return search;
+
+  const push = await handlePush(request, pathname);
+  if (push !== null) return push;
 
   // Single-segment conversation reads sort last: every deeper path
   // (`/history`, `/messages`) owns its own regex above.
