@@ -8,13 +8,80 @@ A resilient, durable real-time messenger built with a proven database-backed spi
 
 ---
 
-## Architecture & Data Flow
+## Architecture & System Design
 
 vartalap decouples message persistence from network fan-out. Every message is guaranteed strict monotonic ordering via database-level serialization locks, committed locally before network transit, and broadcast via an asynchronous transactional outbox relay.
 
-![System Architecture](media/architecture.png)
+![System Design Architecture](media/system-design.png)
 
-### End-to-End Flow Diagram
+### System Component Architecture
+
+```mermaid
+graph TB
+    subgraph ClientTier["1. Client Tier (Offline-First SPA)"]
+        UI["React 19 Messenger Shell<br/>• 4-Column Layout & Burst States<br/>• Light / Dark Adaptive Tokens"]
+        Store["Dexie.js IndexedDB Store<br/>• Optimistic Local Rows (seq: null)<br/>• liveQuery() Subscription"]
+        Queue["Send Queue & Retry Ladder<br/>• UUIDv7 Idempotency Keys<br/>• Exponential Backoff & Jitter"]
+        SW["Service Worker (sw.js)<br/>• Web Push Notification Receiver"]
+        UI <--> Store
+        Queue --> Store
+    end
+
+    subgraph GatewayTier["2. Edge & Security Gateway"]
+        Proxy["Edge Reverse Proxy<br/>• Security Headers (HSTS, nosniff, COOP)<br/>• Same-Origin Routing (/api/*)"]
+        RateLimit["Token-Bucket Rate Limiter<br/>• Auth: 10/min (Closed)<br/>• Send: 30/min · Search: 60/min"]
+        Auth["Better Auth Identity<br/>• HttpOnly Session Cookies<br/>• Immutable Handle Reservations"]
+        Proxy --> RateLimit
+        RateLimit --> Auth
+    end
+
+    subgraph ServiceTier["3. Application & Realtime Services"]
+        SendHandler["Message Send Handler<br/>• pg_advisory_xact_lock<br/>• Global Monotonic seq<br/>• Atomic Outbox Frame Emission"]
+        Watermarks["Watermark Engine<br/>• Monotonic GREATEST() Upsert<br/>• Shared-Through Privacy Freeze<br/>• On-the-Fly 'Seen' Derivation"]
+        CatchUp["Catch-Up & Keyset Paging<br/>• Keyset Queries (Zero OFFSET)<br/>• COUNT(*) Net Reconciliation"]
+        Presence["Presence & Typing<br/>• Connection Liveness (45s TTL)<br/>• Ephemeral Typing Indicators"]
+        MediaSearch["Media & Search Services<br/>• Server-Side Magic-Byte Sniffer<br/>• GIN tsvector Full-Text Search"]
+    end
+
+    subgraph WorkerTier["4. Asynchronous Relays & Workers"]
+        OutboxRelay["Transactional Outbox Relay<br/>• FOR UPDATE SKIP LOCKED<br/>• Monotonic Frame Fan-out"]
+        PushWorker["Web Push Dispatcher<br/>• Presence & Watermark Suppression<br/>• Non-leaking Safe Payloads"]
+        PurgeWorker["Outbox Purge Worker<br/>• Immediate Published Purge<br/>• 24h Failed Retain Window"]
+    end
+
+    subgraph StorageTier["5. Storage & Distributed State"]
+        Postgres[("PostgreSQL (Neon / PGlite)<br/>• user & handle_reservation<br/>• conversation & member<br/>• message (global seq)<br/>• outbox & receipts")]
+        Redis[("Redis Cluster / In-Memory<br/>• Presence (45s TTL)<br/>• Rate Limit Token Buckets<br/>• Cluster Pub/Sub")]
+        R2[("Cloudflare R2 Object Storage<br/>• Encrypted Media Variants<br/>• Raw Uploads Never Served")]
+    end
+
+    Queue -->|HTTP POST /messages| Proxy
+    Store -->|HTTP GET /catch-up| Proxy
+    UI -->|HTTP POST /receipt/advance| Proxy
+    RateLimit -.-> Redis
+    Auth --> SendHandler
+    Auth --> Watermarks
+    Auth --> CatchUp
+    Auth --> Presence
+    Auth --> MediaSearch
+
+    SendHandler --> Postgres
+    Watermarks --> Postgres
+    CatchUp --> Postgres
+    Presence -.-> Redis
+    MediaSearch --> Postgres
+    MediaSearch --> R2
+
+    Postgres --> OutboxRelay
+    OutboxRelay --> Postgres
+    OutboxRelay --> PushWorker
+    PurgeWorker --> Postgres
+
+    OutboxRelay -.->|WebSocket Frames| Store
+    PushWorker -.->|Web Push| SW
+```
+
+### End-to-End Transaction & Relay Flow
 
 ```mermaid
 sequenceDiagram
