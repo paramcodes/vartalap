@@ -33,7 +33,7 @@ drift.
 | [0004-message-durability](adr/0004-message-durability.md) | Persist before acknowledge: the durable spine of the message lifecycle |
 | [0005-message-ordering](adr/0005-message-ordering.md) | A global `seq` orders messages, and per-conversation serialisation makes the commit-inversion r |
 | [0006-presence](adr/0006-presence.md) | Presence lives in a Redis TTL, not in Centrifugo's built-in presence |
-| [0007-conversation-model](adr/0007-conversation-model.md) | One `conversations` table, and a NULL that does the uniqueness work |
+| [0007-conversation-model](adr/0007-conversation-model.md) | One `conversation` table, and a NULL that does the uniqueness work |
 | [0008-media-pipeline](adr/0008-media-pipeline.md) | Never serve the raw upload — sniff, allowlist, and serve only derived variants |
 | [0009-message-search](adr/0009-message-search.md) | Message search is Postgres full-text, behind one exported function |
 | [0010-receipt-mechanics](adr/0010-receipt-mechanics.md) | A receipt has two positions: the one you own, and the one everyone else sees |
@@ -61,6 +61,13 @@ drift.
 | [0053-nothing-is-retracted](adr/0053-nothing-is-retracted.md) | Nothing is retracted: a queued send can be waited for or discarded, never changed |
 | [0054-build-the-spine-first](adr/0054-build-the-spine-first.md) | Build the durable spine before any surface |
 | [0055-desktop-layout-is-four-columns](adr/0055-desktop-layout-is-four-columns.md) | Desktop is four columns, and collapsing a pane is a decision rather than a media query |
+| [0056-conversation-serialisation-lock](adr/0056-conversation-serialisation-lock.md) | The send lock is `hashtextextended($1::uuid::text, 8530225013392695664)` in SQL — the `::uuid::text` cast is what stops a client sending `A1B2…` and taking a different lock from the same conversation |
+| [0057-the-outbox-relay-is-a-poller](adr/0057-the-outbox-relay-is-a-poller.md) | The relay polls in batches of 100 with `SKIP LOCKED`, and its guarantee is **at-least-once on purpose** — correctness rests on the client upserting on the client id, so duplicates are free and a dropped frame is not |
+| [0058-receipt-sharing-is-a-transport-signal](adr/0058-receipt-sharing-is-a-transport-signal.md) | `shared_through` is the mechanism and `sharing` is a signal about a permission; reading the boolean as the mechanism is how a privacy control becomes a disclosure button |
+| [0059-the-send-endpoint](adr/0059-the-send-endpoint.md) | `POST /api/conversations/{id}/messages`, four fields decide "the same content", and the error envelope carries `retryable` |
+| [0060-stored-state-is-narrow-and-derived-state-is-wide](adr/0060-stored-state-is-narrow-and-derived-state-is-wide.md) | A client row stores three states and derives five; `sent` is `seq !== null` and `delivered`/`read` are per-member watermarks, so no message row ever grows a read flag |
+| [0061-the-client-data-layer](adr/0061-the-client-data-layer.md) | The send queue is a query, the receive path is one function with three call sites enforced by a test, and a `COUNT(*)` mismatch refetches from the floor once and then records rather than loops |
+| [0062-static-react-spa-and-test-dom](adr/0062-static-react-spa-and-test-dom.md) | The interface is a static React SPA behind a same-origin proxy, proved with happy-dom — SSR rejected, no router until 6.2 |
 
 | Concept | Teaches |
 |---|---|
@@ -78,6 +85,10 @@ drift.
 | [profile-and-settings](concepts/profile-and-settings.md) | Profile and settings |
 | [push-notifications](concepts/push-notifications.md) | Push notifications |
 | [roadmap](concepts/roadmap.md) | The roadmap |
+
+| Plan | Holds |
+|---|---|
+| [stage-3](plans/stage-3.md) | The durable spine — four gates (G1 ordering, G2 monotonic watermarks, G3 one receive path, G4 `COUNT(*)` reconciliation) and the units that prove them. **G1b needs real concurrency and has never run**; a plan that calls the ordering guarantee proven before it does is wrong |
 
 ## Traps that will bite whoever builds this
 
@@ -104,6 +115,13 @@ These are the expensive ones. Each cost a wrong first implementation.
 10. **Run indices index the divider-filtered list.** Run-position lookups must use full-transcript indices.
 11. **Three shadcn `SidebarProvider`s means three `Cmd+B` handlers and three mobile Sheets.** Only the conversation list is a Sidebar; the rail and the details pane are flex columns. See [ADR 0055](adr/0055-desktop-layout-is-four-columns.md).
 12. **`bun run check:tokens` exists because the Tailwind browser build cannot `@import` an `@theme`.** The token block must be inlined in each prototype, so it is duplicated five times and the script is the only thing keeping the copies identical. A prototype that quietly disagrees about a token renders wrong with no error anywhere.
+13. **The tables are singular.** `message`, `conversation`, `member`, `receipt`, `delivery` — never `messages` or `conversations`. Prose written before the migration landed says `messages.seq` and `INSERT INTO conversations`, and that SQL does not run. The migration is canonical.
+14. **`Seen` is over `shared_through`, never over `read_through`.** ADR 0003 originally computed it over `receipt[m].read_through`; [0010](adr/0010-receipt-mechanics.md) replaced one position with two and moved it, and 0003 has been corrected in place. Building it off `read_through` broadcasts the gap a member spent hiding — the exact failure 0010 exists to prevent.
+15. **A watermark invariant has to name two columns in the same row.** ADR 0004 wrote `read_through >= delivered_through`, which compares a `receipt` column against a `delivery` column and enforces nothing — silently, because both columns exist and both are monotonic. The invariant is `read_through >= shared_through`, and 0004 now says so. The trap is the *shape* of the mistake, not the typo.
+16. **`message` has two timestamps and the send path must supply both.** `client_created_at` is `NOT NULL` with no default and comes from the client (display only, never a sort key); `created_at` is `DEFAULT now()`, which is `transaction_timestamp()`. An insert supplying only `created_at` violates the `NOT NULL` and fails the transaction that also writes the outbox row.
+17. **Better Auth's rate limiter buckets by client IP, and a test server has none.** `bun test` binds loopback, so `auth`'s limiter falls back to a shared bucket and allows **exactly three sign-ups per run** before answering `429` for the rest of it. Measured, not configured. A test file that signs up per test dies partway through on a limit that has nothing to do with what it is testing — sign up once, then isolate per test some other way.
+18. **Advisory-lock keys are case-sensitive and that is the whole hazard.** ADR [0056](adr/0056-conversation-serialisation-lock.md) derives the key in SQL from `conversation_id::text`. Hashing the raw request string instead yields **four different keys for one conversation** depending only on letter case, and two concurrent sends then take different locks and ADR 0005's race is back with no error anywhere. The `::uuid::text` cast is a correctness property, not a cast.
+19. **Never hand a raw postgres.js `Query` (or a Drizzle builder) to `expect(...).rejects`.** Both are lazy thenables, not native promises, and Bun's `rejects` never settles on them — the test hangs for its whole timeout instead of failing, and on a single-connection PGlite the wedged operation queues everything behind it so the NEXT tests time out too. Wrap in an async IIFE (the `test-harness.test.ts` idiom) or assert in try/catch on `error.code` and the constraint name. Measured across five bisection cases: plain rejected promise passes, wrapped passes, raw hangs whether the query resolves or rejects.
 
 ## Vocabulary rules
 
@@ -128,3 +146,4 @@ Do not let these harden into fact without a check.
 - **Short-prefix FTS degradation** — real mechanic, zero documentation. Engineering judgment, not cited.
 - **Every layout number in ADR 0055** — rail 64, list 320, details 300, transcript cap 760, breakpoints 760 and 1150. None was recovered from a source; Facebook serves messenger.com through Comet behind a login and every archived capture is the logged-out shell. They are defaults to be judged by eye.
 - **Whether messenger.com currently has a details pane** — contradicted twice in one session. Meta's screen-reader landmark spec says three regions and no right pane; the operator's screenshot of the old desktop app shows four. Both are real evidence of different things, and neither describes what ships today.
+- **The terminal / retryable split by status code** — `400`/`413`/`422` terminal and `401`/`408`/`425`/`429` retryable is reasoning, not observation. The server's actual status codes do not exist yet. [composer-and-sending](concepts/composer-and-sending.md) records that if they come out differently its table changes, and [message-lifecycle](concepts/message-lifecycle.md#when-a-send-fails) changes with it.

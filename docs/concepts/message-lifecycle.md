@@ -17,13 +17,23 @@ Messenger's does, but no part of the model may.
 
 ---
 
-## The four states a message passes through
+## The states a message passes through — and which of them are on the row
 
 A reader who remembers nothing else should remember this table.
 
-| state | what it asserts | who knows it |
+**Three states are stored**, because they are exactly the ones a browser can know with no network at
+all:
+
+| stored state | what it asserts | who knows it |
 |---|---|---|
-| **pending** | composed and stored locally; no server has seen it | only this browser |
+| **queued** | composed and stored locally; no server has seen it | only this browser |
+| **inFlight** | a `POST` for it is open right now | only this browser |
+| **failed** | the server definitively refused it | only this browser |
+
+**The other three are derived when the row is drawn, and none of them is ever written to anything:**
+
+| derived | what it asserts | who knows it |
+|---|---|---|
 | **sent** | committed to Postgres with its outbox row | the server |
 | **delivered** | a member's client received the frame and persisted it | the server, via that member's device |
 | **read** | a member's receipt advanced past it | every member |
@@ -31,19 +41,30 @@ A reader who remembers nothing else should remember this table.
 `sent` is not a promise that a person received anything. It is the guarantee that the message is
 **durable** — that it exists, and that delivery to its members will happen eventually whether or not
 any device is currently online. That distinction is the entire difference between a messaging system that
-generates support tickets and one that doesn't.
+generates support tickets and one that doesn't. **It has a test that costs nothing: `seq !== null`.**
+Storing it beside the position would store a fact the same row already carries more reliably.
+
+`delivered` and `read` are **comparisons against per-member watermarks**, made at render time. Neither
+is a column on a message row and neither may become one: a Receipt is a member's record and never a
+property of a message, so writing either onto a row would be the second source of truth
+[`GLOSSARY.md`](../../GLOSSARY.md) bans.
 
 `delivered` is per **member**, not per device. If Priya has a laptop and a phone and only the phone
 is awake, the message counts as delivered to Priya. "She has it somewhere" is the fact a sender
 actually wants, and per-device delivery would need device identity and per-device acknowledgements
 to answer a question nobody asks.
 
+> **Decided by [0060](../adr/0060-stored-state-is-narrow-and-derived-state-is-wide.md), which is newer
+> than the rest of this document.** This used to present all four as states a message passes through.
+> That is the vocabulary 0060 removed: two of them were never stored, one is a derivation from the
+> position, and `pending` is on the glossary's avoid list. **The protocol word is `queued`.**
+
 ---
 
 ## 1. Compose
 
 The member presses send. One client-generated **UUIDv7** is minted, and it is the single value that
-identifies the message everywhere: the `messages.id` column, the idempotency key on the request, the
+identifies the message everywhere: the `message.id` column, the idempotency key on the request, the
 outbox row in the browser's send queue, and every frame that later mentions it.
 
 That is deliberate — **Message** and **Idempotency key** are separate nouns because a *retry* is a
@@ -59,7 +80,7 @@ ordering guarantee at all. Ordering comes from step 5.
 
 ## 2. The optimistic local write
 
-The message is written to Dexie immediately with `position: null` and `state: 'pending'`, before any
+The message is written to Dexie immediately with `position: null` and `state: 'queued'`, before any
 network call. This is why the interface never waits on the network: the row exists synchronously,
 and the member sees their own message instantly.
 
@@ -73,8 +94,12 @@ The moment the server speaks, the position is set and the message snaps into pla
 
 ## 3. Enqueue — the send queue is a query, not a table
 
-The pending row *is* the send queue. There is no second table and no promotion step: **the send
-queue is `messages where state = 'pending'`**, scoped to one browser profile.
+The queued row *is* the send queue. There is no second table and no promotion step: **the send
+queue is `messages where state = 'queued'`**, scoped to one browser profile.
+
+(`inFlight` is the same machinery holding a row while its `POST` is open. **0060** is what renamed
+`pending` to `queued` — `pending` is on the glossary's avoid list, and the domain word is a **queued
+send**.)
 
 This matters more than it looks. A separate `sendQueue` table would need rows to be moved across
 when a send succeeds, and a moving part is a part that can be interrupted. More importantly it could
@@ -117,7 +142,7 @@ The cost is real and worth naming: **a committed message is a message that exist
 relay and every device is offline for the next hour. It is durable before it is anywhere.
 
 Within that same transaction the message is assigned its **position** — a server-assigned `bigint`
-sequence number, `messages.seq`, that every ordering decision depends on. Positions are opaque to
+sequence number, `message.seq`, that every ordering decision depends on. Positions are opaque to
 clients: a client can never set, influence, or predict one.
 
 > The position is a **single global column**, not a per-conversation sequence. This document originally
@@ -148,8 +173,10 @@ precedent.** Stripe's documentation specifies the error *type* (`idempotency_err
 nothing about the status code, and the sources for it conflict.
 
 One behaviour is worth copying verbatim: Stripe does **not** consume an idempotency key for failures
-that happen before execution begins. A `429`, or a `400` that fails validation, leaves the key
-unused and the request retryable. A rate-limited send must not burn the message's identity.
+that happen before execution begins. A `429`, or a `400` that fails validation, leaves the key unused,
+so a retry is a fresh attempt rather than a duplicate check. A rate-limited send must not burn the
+message's identity — and note that this is a statement about the **key**, not about whether the retry
+is worth making. Those are independent facts; see [When a send fails](#when-a-send-fails).
 
 ## 7. Fan out
 
@@ -213,6 +240,13 @@ incoming one. Nothing in the schema says "under the last outgoing"; it falls out
 sends never advance their own receipt, so their watermark can never satisfy the condition for their
 own message.
 
+**Neither of those is a column on a message row.** `delivered` and `read` are what the interface
+*draws*, derived at render time by comparing this message's `seq` against a member's watermark. The
+watermarks advance as described above and are stored as themselves; the state is not stored, because a
+Receipt is a member's record and never a property of a message
+([0060](../adr/0060-stored-state-is-narrow-and-derived-state-is-wide.md),
+[`GLOSSARY.md`](../../GLOSSARY.md)).
+
 See [`docs/adr/0003`](../adr/0003-receipt-watermark.md) for why receipts are a bookmark rather than
 a diary, and [Read receipt mechanics](https://github.com/paramcodes/vartalap/issues/19) for the
 storage details — row shape, monotonicity enforcement, throttling, and what happens when sharing is
@@ -239,18 +273,28 @@ A permanently skipped row is invisible otherwise.
 
 ## When a send fails
 
-The pending row has to do something sensible for each failure, and the failures mean different
+The queued row has to do something sensible for each failure, and the failures mean different
 things.
 
 | outcome | meaning | what happens to the row |
 |---|---|---|
-| network error / timeout | indistinguishable from "accepted, response lost" | retry; the idempotency key collapses it |
-| `429`, pre-execution `4xx` | never executed; key not consumed | stays pending, retries with backoff |
-| `5xx` | genuinely ambiguous | retry; same as a timeout |
-| `409` | key reused with different content — a **client bug** | terminal failure state; retrying cannot help |
+| `2xx` | accepted, position assigned | becomes `sent` |
+| network error, timeout, `5xx` | indistinguishable from "accepted, response lost" | back off and retry; the idempotency key collapses it |
+| `408`, `425`, `429` | the server answered and refused on policy | back off and retry, honouring `Retry-After`; the key is unconsumed, so the retry is a fresh attempt |
+| `401` | not authenticated; the message is fine | back off and retry — re-authentication re-flushes the queue |
+| `409` | key reused with different content — a **client bug** | terminal. `Not sent`; retrying cannot help |
+| `400`, `413`, `422` | rejected, and the same bytes will be rejected identically | terminal. `Not sent`, and the strip names the reason |
+
+> **Amended by [the composer](./composer-and-sending.md#failure-and-the-one-number-that-is-never-shown).**
+> This table previously read `429` and pre-execution `4xx` together as *"never executed; key not
+> consumed → stays pending, retries with backoff"*, on Stripe's rule in step 6. **"The key was not
+> consumed" and "the request can never succeed" are independent facts**, and Stripe's rule is only
+> about the first. A validation rejection is rejected identically on every retry, forever; retrying it
+> burns a queue slot to arrive at the same answer. The test is: *could retrying these identical bytes
+> plausibly produce a different status?* If not, it is terminal.
 
 **A message someone pressed send on is never discarded by the system.** Retryable failures back off
-and leave the row visible as pending. A `409` moves it to a visible failed state with an affordance
+and leave the row in the send queue. A `409` moves it to a visible failed state with an affordance
 to retry or discard it — but discarding is the member's decision, made by them, on a message they
 can still see. A client that quietly deletes what somebody typed and believed they sent is the worst
 outcome available, and the cost of avoiding it is a small policy for cleaning up dead rows.

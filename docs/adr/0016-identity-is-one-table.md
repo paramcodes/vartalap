@@ -127,7 +127,7 @@ does not have to be taken.
 ### Ids are `uuid`, deliberately
 
 `advanced.database.generateId: "uuid"`. Every other table's id is a `uuid`, and
-`messages.author_id → user.id` is the hottest join in the product; the library default is a
+`message.author_id → user.id` is the hottest join in the product; the library default is a
 32-character random string into `text`.
 
 [0001]'s trap is repeated because the failure is invisible: pointing the default `text` generator at a

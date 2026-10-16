@@ -8,21 +8,27 @@
   ],
   "scripts": {
     "typecheck": "bun run --filter='*' typecheck",
-    "db:generate": "bun run --filter=@vartalap/database generate",
-    "db:migrate": "bun run --filter=@vartalap/database migrate",
-    "db:push": "bun run --filter=@vartalap/database push",
-    "db:studio": "bun run --filter=@vartalap/database studio",
+    "test": "bun test --preload ./packages/auth/src/test-harness.ts --preload ./packages/database/src/test-harness.ts --preload ./apps/web/src/testing/fake-indexeddb.ts --preload ./apps/web/src/testing/setup-dom.ts",
+    "db:generate": "bun run --env-file=.env --filter=@vartalap/database generate",
+    "db:migrate": "bun run --env-file=.env --filter=@vartalap/database migrate",
+    "db:push": "bun run --env-file=.env --filter=@vartalap/database push",
+    "db:studio": "bun run --env-file=.env --filter=@vartalap/database studio",
     "db:local": "bun run scripts/db-local.ts",
     "db:setup": "bun run scripts/db-local.ts --migrate",
     "check:tokens": "bun run scripts/check-prototype-tokens.ts",
     "proto": "bun run scripts/serve-prototype.ts",
-    "auth:check": "bun run --filter=@vartalap/auth check-schema",
-    "auth:smoke": "bun run --filter=@vartalap/auth smoke"
+    "auth:check": "bun run --env-file=.env --filter=@vartalap/auth check-schema",
+    "auth:smoke": "bun run --env-file=.env --filter=@vartalap/auth smoke",
+    "realtime": "bun run --env-file=.env --filter=@vartalap/realtime start",
+    "realtime:dev": "bun run --env-file=.env --filter=@vartalap/realtime dev",
+    "dev": "bun run --filter=@vartalap/web dev",
+    "e2e:drive": "bun run scripts/e2e-drive.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",
     "@electric-sql/pglite-socket": "^0.2.13",
     "@types/bun": "latest",
+    "puppeteer-core": "^25.14.0",
     "typescript": "^5.7.0"
   },
   "engines": {

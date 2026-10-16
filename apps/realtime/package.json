@@ -1,0 +1,25 @@
+{
+  "name": "@vartalap/realtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "dev": "bun --watch run src/server.ts",
+    "test": "bun test --preload ../../packages/auth/src/test-harness.ts --preload ../../packages/database/src/test-harness.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vartalap/auth": "workspace:*",
+    "@vartalap/database": "workspace:*",
+    "@vartalap/protocol": "workspace:*",
+    "drizzle-orm": "^0.38.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}

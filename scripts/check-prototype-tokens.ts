@@ -68,6 +68,26 @@ function tokensOf(html: string): { theme: string; dark: string } | null {
   };
 }
 
+/**
+ * The app's canonical copy. `apps/web/src/theme.css` is raw CSS (no
+ * `<style>` wrapper), so the blocks are extracted directly — and compared
+ * against the same reference as the prototypes. A prototype that disagrees
+ * with the app renders wrong with no error anywhere; an app theme that
+ * disagrees with ADR 0002 is the same failure wearing a build step.
+ *
+ * Convergence decision (unit 6.1): the prototypes STAY inlined — the Tailwind
+ * browser build cannot `@import`, so convergence onto one file is impossible
+ * and this script is the convergence. The day a `packages/*` library carries
+ * a class, its `@source` line belongs in `theme.css`, and a third block source
+ * here would mean the duplication escaped.
+ */
+function tokensOfApp(css: string): { theme: string; dark: string } {
+  return {
+    theme: allBlocks(css, /@theme\s*\{/g).join('\n'),
+    dark: allBlocks(css, /\.dark\s*\{/g).join('\n'),
+  };
+}
+
 /** The line number where two texts part company, 1-based. */
 function firstDivergence(a: string, b: string): number {
   const left = a.split('\n');
@@ -136,6 +156,34 @@ function compare(label: string, pick: (t: TokenSet) => string) {
 
 compare('@theme block', (t) => t.theme);
 compare('.dark overrides', (t) => t.dark);
+
+// ── the app's copy ──────────────────────────────────────────────────────────
+// Same reference, same byte-for-byte rule (comments included). `theme.css`
+// carries the file's own header comment outside the blocks, which is why only
+// the extracted blocks participate — the header is allowed to say where the
+// file lives, the blocks are not allowed to disagree about a value.
+{
+  const appCss = await Bun.file(join(repoRoot, 'apps/web/src/theme.css')).text();
+  const app = tokensOfApp(appCss);
+  const reference = paths.find((p) => found.get(p) !== null);
+  const expected: TokenSet = reference === undefined ? { theme: '', dark: '' } : found.get(reference)!;
+  let appBroken = false;
+  for (const [label, pick] of [
+    ['@theme block', (t: TokenSet) => t.theme],
+    ['.dark overrides', (t: TokenSet) => t.dark],
+  ] as const) {
+    if (pick(app) !== pick(expected)) {
+      const line = firstDivergence(pick(expected), pick(app));
+      console.log(`✗ app ${label} differs in apps/web/src/theme.css (first difference at line ${line})`);
+      appBroken = true;
+    }
+  }
+  if (!appBroken) {
+    console.log('✓ app theme.css in sync with the prototypes');
+  } else {
+    broken = true;
+  }
+}
 
 if (broken) {
   console.error(

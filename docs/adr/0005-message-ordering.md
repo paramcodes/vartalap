@@ -62,10 +62,15 @@ second ago.
 ```sql
 BEGIN;
   SELECT pg_advisory_xact_lock(<int64 derived from conversation_id>);
-  INSERT INTO messages (id, conversation_id, author_id, body, created_at) VALUES (...);
+  INSERT INTO message (id, conversation_id, author_id, body, client_created_at) VALUES (...);
   INSERT INTO outbox   (...) VALUES (...);
 COMMIT;
 ```
+
+The tables are **singular**: `message` and `conversation`, matching the migration. The insert supplies
+both timestamps because `client_created_at` is `NOT NULL` with no default — it is the client's clock,
+and neither it nor the server's `created_at` is ever a sort key.
+[`docs/concepts/message-ordering.md`](../concepts/message-ordering.md) has the reasoning.
 
 The lock is transaction-scoped and released automatically at commit or rollback. It is invisible to
 readers, it does not contend across conversations, and a single-message send touches exactly one
@@ -144,6 +149,22 @@ and one you cannot.
 is ever dropped, refactored away, or moved outside the transaction that inserts the message. It
 carries no comment of its own and no test — which is why the client-side `COUNT(*)` reconciliation
 exists as an independent net, rather than as a nicety.
+
+> **Corrected in place by stage 3.C.** Both of those were the reason this was survivable, and both
+> now exist. `apps/realtime/src/spine/send.ts` carries the comment, and `send.test.ts` is gate
+> **G1a**: it asserts the send path *issues* `pg_advisory_xact_lock` with
+> [0056](0056-conversation-serialisation-lock.md)'s derivation, inside the transaction that inserts
+> the message, before the insert, by intercepting the SQL the client emits. It was checked by
+> removing the line and watching the test fail.
+>
+> **G1a is half of gate G1, and the other half has never run.** The rest of the guarantee — that
+> concurrent sends really do commit in `seq` order — needs a real Postgres, and skips loudly
+> against PGlite, which serves one connection and therefore cannot race at all.
+> `docs/plans/stage-3.md` records this as two tests rather than one, and nothing may call the
+> ordering guarantee proven while the second is unrun.
+>
+> The `COUNT(*)` reconciliation is untouched and still the independent net. A test does not make a
+> guarantee self-evident; it makes the guarantee's absence loud.
 
 If per-conversation send throughput ever becomes a real constraint, the alternatives are a hold-back
 watermark over in-flight allocations, or accepting a widened window. Both are strictly worse than the

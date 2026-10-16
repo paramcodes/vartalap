@@ -25,7 +25,7 @@ standing: **`seq`**.
 
 ## Decision
 
-### `conversations.last_seq` is the list's sort key, and it is a position
+### `conversation.last_seq` is the list's sort key, and it is a position
 
 ```sql
 last_seq  bigint NOT NULL DEFAULT 0
@@ -34,7 +34,7 @@ last_seq  bigint NOT NULL DEFAULT 0
 Maintained in the same transaction that inserts the message, by
 
 ```sql
-UPDATE conversations SET last_seq = GREATEST(last_seq, $seq) WHERE id = $1
+UPDATE conversation SET last_seq = GREATEST(last_seq, $seq) WHERE id = $1
 ```
 
 **Never recomputed from `MAX(seq)`, never repaired by a job, never set from a timestamp.**
@@ -89,7 +89,7 @@ moves a row, changes its `seq`, or changes its `id`", and that a soft delete "ke
 occupied". Both are upstream facts, and together they mean **`last_seq` cannot move for either
 event**. The guarantee is a column property, not a UI discipline, and nobody has to remember it.
 
-### `last_seq` carries no foreign key to `messages`
+### `last_seq` carries no foreign key to `message`
 
 Same reason `receipt.read_through` and `delivery.delivered_through` do not: **a position is not a
 row.** A hard delete of the newest message leaves `last_seq` pointing at a position no row occupies,

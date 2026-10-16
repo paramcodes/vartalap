@@ -214,7 +214,7 @@ indication."*
 |---|---|---|
 | 1 | `canSend()` is consulted | client |
 | 2 | One **UUIDv7** is minted — identity *and* idempotency key | client |
-| 3 | The row is written to Dexie with `position: null`, `state: 'pending'` | client, **before any network call** |
+| 3 | The row is written to Dexie with `position: null`, `state: 'queued'` | client, **before any network call** |
 | 4 | The draft is cleared, **in the same transaction** | client |
 | 5 | The composer empties, focus stays in the field, the transcript follows the bottom if it was there | client |
 | 6 | The `POST` is issued | network |
@@ -277,13 +277,13 @@ a gate.
 | **`409`** | **no** | terminal. `Not sent` |
 | **`400`, `413`, `422`** | **no** | **terminal.** `Not sent`, and the strip names the reason |
 
-> **A correction to [the message lifecycle](./message-lifecycle.md#when-a-send-fails).** That
-> document groups `429` and pre-execution `4xx` together as *"never executed; key not consumed →
-> stays pending, retries with backoff"*, on Stripe's rule. **"The key was not consumed" and "the
-> request can never succeed" are independent facts**, and Stripe's rule is about the first. A
-> validation rejection will be rejected identically on every retry, forever; retrying it burns a
-> queue slot to arrive at the same answer. The test is: *could retrying these identical bytes
-> plausibly produce a different status?* If not, it is terminal.
+> **Applied to [the message lifecycle](./message-lifecycle.md#when-a-send-fails).** That document
+> grouped `429` and pre-execution `4xx` together as *"never executed; key not consumed → stays
+> pending, retries with backoff"*, on Stripe's rule. **"The key was not consumed" and "the request can
+> never succeed" are independent facts**, and Stripe's rule is about the first. A validation rejection
+> will be rejected identically on every retry, forever; retrying it burns a queue slot to arrive at the
+> same answer. The test is: *could retrying these identical bytes plausibly produce a different status?*
+> If not, it is terminal. **Its table now carries this split.** This document keeps the reasoning.
 
 ### Backoff
 
@@ -566,10 +566,10 @@ backoff ladder are engineering judgement. None is a measurement, and none is sou
 product — the `1s/2s/5s/10s/30s/60s` ladder in particular is a shape that feels right rather than a
 shape derived from anything.
 
-**The `400`/`413`/`422` terminal split is new** and contradicts a table in
-[the message lifecycle](./message-lifecycle.md#when-a-send-fails) that is otherwise sound. The
-reasoning is in this document; what is missing is the server's actual status codes, which do not
-exist yet. If they come out differently, this table changes and the lifecycle table does not.
+**The `400`/`413`/`422` terminal split is new** and was a correction to a table in
+[the message lifecycle](./message-lifecycle.md#when-a-send-fails) that has now been applied there.
+What is still missing is the server's actual status codes, which do not exist yet. If they come out
+differently, this table changes and the lifecycle table changes with it.
 
 **There is no automated test that can verify the IME guard.** The ordering is a property of Safari's
 event loop; a headless suite will pass with all three belts deleted. The only verification is manual,

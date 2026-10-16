@@ -39,7 +39,7 @@ it and are inherited here unchanged.
 
 ## What orders it
 
-`conversations.last_seq`, descending. One column, one index, no tie-break. Full reasoning in
+`conversation.last_seq`, descending. One column, one index, no tie-break. Full reasoning in
 [0045](../adr/0045-conversation-list-orders-by-a-position.md); the three consequences worth carrying
 into the code:
 
@@ -98,7 +98,7 @@ of the same decision: **absence is the only honest offline state.** The row just
 
 17px / 600, `--text-primary`, one line, ellipsis at the end. Direct conversations derive the name
 from the other member and **store nothing** ([ADR 0007](../adr/0007-conversation-model.md)), so a
-rename can never leave a stale header. Groups render `conversations.title`.
+rename can never leave a stale header. Groups render `conversation.title`.
 
 ### Preview
 
@@ -248,7 +248,7 @@ the layout sideways by the width of a scrollbar that was not there a moment ago.
 | | Direct | Group |
 |---|---|---|
 | Picture | The other member's avatar | A group avatar |
-| Primary | Their display name (derived, never stored) | `conversations.title` |
+| Primary | Their display name (derived, never stored) | `conversation.title` |
 | Secondary | `Active now` or `Offline` | `N members` |
 | Cluster | — | Up to 3 overlapping 24px avatars, overflow as `+N` |
 

@@ -1,4 +1,4 @@
-# 0007. One `conversations` table, and a NULL that does the uniqueness work
+# 0007. One `conversation` table, and a NULL that does the uniqueness work
 
 **Status:** Accepted
 **Date:** 2026-10-14
@@ -15,7 +15,7 @@ half is a schema decision with a bill attached, and the bill is smaller than it 
 
 ## Decision
 
-### One `conversations` table, with a `kind` discriminator
+### One `conversation` table, with a `kind` discriminator
 
 Not `direct_conversations` and `group_conversations`.
 
@@ -76,7 +76,7 @@ display name.
 - **The read-then-write race disappears.** Two people messaging each other for the first time,
   simultaneously, is the *normal* case for every new contact — not a rare edge. An application-level
   uniqueness check is a race with extra steps. This one is a constraint.
-- **One bill, stated plainly.** Every query against `conversations` carries a `kind` filter that will
+- **One bill, stated plainly.** Every query against `conversation` carries a `kind` filter that will
   occasionally be forgotten, and direct rows carry nullable fields that are always null. The
   conversation header already needs `kind` in two places. That is the cost, it is real, and it is
   far smaller than duplicating the entire read model — which is the most-regretted schema decision in

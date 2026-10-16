@@ -296,8 +296,10 @@ export const block = pgTable(
  * Two inserts into the SAME conversation can therefore invert — and that is the only
  * case where it matters, because a client paging conversation B backwards never
  * encounters conversation A's seq. The send path MUST take
- * `pg_advisory_xact_lock(<hash of conversation_id>)` before inserting. It is one line
- * carrying the entire guarantee; do not "simplify" it away. See ADR 0054.
+ * `pg_advisory_xact_lock(hashtextextended($1::uuid::text, 8530225013392695664))`
+ * before inserting. It is one line carrying the entire guarantee; do not "simplify" it
+ * away. See ADR 0005 for the guarantee and ADR 0056 for the derivation — including why
+ * the `::uuid::text` cast is not optional. See ADR 0054.
  *
  * `body` carries a stored generated tsvector with the 'simple' configuration — NOT
  * 'english', which drops stop words and stems, so `rats` becomes `rat`. Search wants
@@ -363,23 +365,105 @@ export const messageAttachment = pgTable(
  *
  * `publishedAt` null means not yet relayed. H-18 purges published rows and retains
  * failed ones for 24h.
+ *
+ * `attempts` and `lastError` exist because that rule is otherwise INEXPRESSIBLE. With
+ * only `published_at`, a row the relay has tried five times and row it has never
+ * touched are both "unpublished", so "failed" and "never attempted" are the same
+ * value and the retention window cannot distinguish a transient broker outage from a
+ * permanently undeliverable payload. Stage 3 added both columns for that reason, and
+ * H-18 is now writable.
+ *
+ * WHY THE FOREIGN KEY IS `no action` AND NOT `cascade`: a hard delete of a `message`
+ * row that cascades here deletes an undelivered send. The message is gone, so nothing
+ * ever broadcasts it, and the transcript simply has a hole where it was — the exact
+ * failure ADR 0004 forbids for watermarks. `NO ACTION` errors instead of deleting, so
+ * the delete is refused while a row is outstanding. It differs from `RESTRICT` only in
+ * deferrability, and the non-deferrable form is the one that fails at the statement
+ * rather than at `COMMIT`.
+ *
+ * ── `message_seq` is NULLABLE, and `conversation_id` is the routing column ──────
+ *
+ * This table carries more than messages. ADR 0003 says receipt updates "arrive as
+ * ephemeral deltas — one event per advance, exactly as the outbox already delivers
+ * everything else", and ADR 0011 says "the outbox row is the only thing fan-out and
+ * push share". Both need a row, and a receipt advance or a delivery ack has **no
+ * message `seq`** — there is no message to point at. With `NOT NULL` those two frames
+ * simply could not be written, so the outbox delivered messages and nothing else.
+ *
+ * **The fan-out target is always the conversation.** `message.created`,
+ * `receipt.advanced` and the delivery acks all go to a conversation's current members,
+ * so the `NOT NULL` `conversation_id` below routes every one of them. `message_seq` is
+ * the ordering aid for the frames that HAVE a position, and it stays an FK: a row that
+ * carries a position still cannot name a message that does not exist. It is now
+ * *possibly absent* rather than *always present*.
+ *
+ * The relay reads it as nullable and says so; nothing may re-add `NOT NULL` on the
+ * strength of "the send path is the only writer of `message.created`" — that is an
+ * argument about today, and the next frame type arrives from a different writer.
  */
 export const outbox = pgTable(
   'outbox',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    /** The message this publishes. Carries `seq`, which is why ordering comes first. */
-    messageSeq: bigint('message_seq', { mode: 'number' })
-      .notNull()
-      .references(() => message.seq, { onDelete: 'cascade' }),
+    /**
+     * The message this publishes, when it publishes a message. Carries `seq`, which is
+     * why ordering comes first — and NULL for every frame that is not about a
+     * message. See the table comment above before adding one.
+     *
+     * `onDelete: 'no action'` is WRITTEN rather than omitted: Drizzle's default is
+     * already `no action`, and this column was `cascade` once. Spelling it out is what
+     * stops the next reader from "tidying" it back.
+     */
+    messageSeq: bigint('message_seq', { mode: 'number' }).references(() => message.seq, {
+      onDelete: 'no action',
+    }),
+    /** The routing column, and the one that is `NOT NULL` for every frame type. */
     conversationId: uuid('conversation_id').notNull(),
     payload: jsonb('payload').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     publishedAt: timestamp('published_at', { withTimezone: true }),
+    /** Relay attempts so far. `0` means the relay has never touched this row. */
+    attempts: integer('attempts').notNull().default(0),
+    /** The sink's error text from the most recent failure. NULL until one happens. */
+    lastError: text('last_error'),
   },
   (t) => [
-    // The relay's hot path is "unpublished rows, oldest first".
+    // The relay's hot path is "unpublished rows, oldest first" (ADR 0057). The same
+    // partial index serves the 24h purge, which is also "unpublished rows, oldest
+    // first" with a `created_at` cutoff — so the purge needs no index of its own.
     index('outbox_unpublished_idx').on(t.createdAt).where(sql`${t.publishedAt} IS NULL`),
+    /**
+     * **A `message.created` frame with no `message_seq` is IMPOSSIBLE, not unlikely.**
+     *
+     * Nullable is a promise, and this is the half that keeps it. The send path is
+     * today the only writer of `message.created`, so a missing check would be a
+     * promise kept by inspection — and the failure it hides is not cosmetic: the relay
+     * would broadcast a `message.created` with `messageSeq: null`, the client would
+     * have a frame it cannot place, and the row would be marked `published_at`, so
+     * the outbox would have recorded a delivery of a frame nobody could use.
+     *
+     * **Why this is not ADR 0010's forbidden `CHECK`.** 0010 line 68 dropped
+     * `receipt_shared_le_read` because "the invariant is about *how* a row is
+     * written, not what a single row contains" — and that is exactly right for
+     * `read_through >= shared_through`: its truth depends on WHICH write produced the
+     * row, `read_through` legitimately runs ahead of `shared_through` whenever sharing
+     * is off (ADR 0058), and a backfill or a repair can hold both columns
+     * legitimately. There is no ordering of writes that violates this one: `payload`
+     * and `message_seq` are two encodings of the SAME fact, so a row that says
+     * "`message.created`, at no position" is malformed in itself and no writer — the
+     * send path, a migration, or a repair — can produce a valid row that breaks it.
+     * A well-formedness rule, not a write-order invariant.
+     *
+     * A payload with no `type` key makes `payload->>'type' <> 'message.created'`
+     * NULL rather than true, and a `CHECK` passes on NULL. That is deliberate: such a
+     * row is caught by `serverFrame.parse` in the relay and recorded as a failed
+     * attempt with the parse error in `last_error`, which is a louder answer than a
+     * constraint the writer could not have known about.
+     */
+    check(
+      'outbox_message_created_needs_message_seq',
+      sql`${t.messageSeq} IS NOT NULL OR ${t.payload}->>'type' <> 'message.created'`,
+    ),
   ],
 );
 
@@ -403,11 +487,36 @@ export const outbox = pgTable(
  * Turn sharing off and `sharedThrough` freezes; turn it back on and it resumes from
  * the frozen value, so the sender sees forward progress that merely lags.
  *
+ * ── WHICH OF THE TWO IS THE MECHANISM (ADR 0058) ────────────────────────────
+ *
+ * `shared_through` is the mechanism: it is the stored value other people read, and it
+ * is the only thing `Seen` is computed over. `sharing` is a SIGNAL ABOUT A PERMISSION:
+ * the server may advance `shared_through` only while it is true, and turning it false
+ * changes nothing by itself. Sharing off does not clear or hold back `read_through` —
+ * `read_through` advances regardless, or the member's unread badge breaks. It holds
+ * back `shared_through`, and only because the server was told not to move it.
+ *
+ * Which endpoint carries the flag is a separate question, settled by ADR 0059 and 0022:
+ * this column is not on the receipt-advance body. The distinction this comment exists to
+ * prevent is mechanism-versus-signal, and it is orthogonal to the transport.
+ *
+ * The failure this framing exists to prevent: reading `sharing` as the mechanism, so
+ * that turning it off freezes nothing on the server, and re-enabling syncs
+ * `shared_through` straight to `read_through` — broadcasting the whole hidden gap.
+ * `sharing` is not state about a position. It is a message about a permission, and
+ * `shared_through` is the state.
+ *
  * NEITHER this table nor `delivery` MAY carry a foreign key to `message`. They point at
  * a POSITION, not a row. An FK with ON DELETE CASCADE would make deleting a message
  * delete the thing pointing at it and un-see everything behind it.
  *
- * `read_through >= shared_through` always holds — nobody reads what did not arrive.
+ * `read_through >= shared_through` holds at all times — nobody reads what did not
+ * arrive — and there is deliberately NO `CHECK` constraint saying so. ADR 0010 line 68:
+ * the invariant is about *how* a row is written, not what a single row contains. The
+ * mechanism is `GREATEST` in the upsert, and a constraint would turn the correct write
+ * order into a hard requirement on every future writer for no gain: any row satisfying
+ * it is already correct, and any row violating it is a bug the upsert cannot produce.
+ * The shipped schema carried `receipt_shared_le_read`; stage 3 dropped it.
  */
 export const receipt = pgTable(
   'receipt',
@@ -423,7 +532,8 @@ export const receipt = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.conversationId, t.userId] }),
-    check('receipt_shared_le_read', sql`${t.sharedThrough} <= ${t.readThrough}`),
+    // NO `check('receipt_shared_le_read', ...)`. See the comment above. Adding it back
+    // is a refactor that silently re-derails the documented mechanism.
     // The "Seen" predicate scans members whose receipt can gate it.
     index('receipt_shared_through_idx').on(t.conversationId, t.sharedThrough),
   ],
@@ -553,10 +663,29 @@ export const deliveryRelations = relations(delivery, ({ one }) => ({
   user: one(user, { fields: [delivery.userId], references: [user.id] }),
 }));
 
-export type User = typeof user.$inferSelect;
-export type Conversation = typeof conversation.$inferSelect;
-export type Member = typeof member.$inferSelect;
-export type Message = typeof message.$inferSelect;
-export type Receipt = typeof receipt.$inferSelect;
-export type Delivery = typeof delivery.$inferSelect;
-export type Media = typeof media.$inferSelect;
+/**
+ * Inferred row types, suffixed `Row`.
+ *
+ * `@vartalap/protocol` exports wire types called `Conversation`, `Member`,
+ * `Message`, `Receipt` and `Delivery` — the same names these tables have. A wire
+ * type and a row are different things with different fields: the wire `Message`
+ * has `seq` as a decimal STRING because a Postgres bigint does not survive JSON,
+ * and `createdAt` as an ISO string because there is no Date on the wire. A file
+ * that imports both packages — and every file in `apps/realtime/src/spine/` is
+ * one, because the spine reads rows and writes frames — had an ambiguous
+ * `Message` on its first line.
+ *
+ * The suffix is Drizzle's own convention for this and it is deliberate: a
+ * namespace import would make every future file remember to disambiguate, and
+ * forgetting is silent. The protocol keeps the bare name because a wire type
+ * named `Message` IS the contract; a database type that quietly shares it is the
+ * accident. Anything reading a row should name it `<Thing>Row` whether or not
+ * `@vartalap/protocol` happens to be imported alongside it.
+ */
+export type UserRow = typeof user.$inferSelect;
+export type ConversationRow = typeof conversation.$inferSelect;
+export type MemberRow = typeof member.$inferSelect;
+export type MessageRow = typeof message.$inferSelect;
+export type ReceiptRow = typeof receipt.$inferSelect;
+export type DeliveryRow = typeof delivery.$inferSelect;
+export type MediaRow = typeof media.$inferSelect;
