@@ -4,7 +4,7 @@ A resilient, durable real-time messenger built with a proven database-backed spi
 
 ![vartalap live demonstration](media/demo.gif)
 
-> **Live Video:** Watch the full HD demonstration walkthrough: [media/demo.mp4](media/demo.mp4).
+> **Official 60fps Launch Video:** [media/launch-video.mp4](media/launch-video.mp4) · **Raw Demonstration Walkthrough:** [media/demo.mp4](media/demo.mp4)
 
 ---
 
